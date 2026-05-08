@@ -61,6 +61,53 @@ export default function NotificationsPage() {
     }
   };
 
+  /** 解析 GitHub API URL 提取应用内路由，例如：
+   *  https://api.github.com/repos/{owner}/{repo}/issues/{number}
+   *  → /repos/{owner}/{repo}/issues/{number}
+   */
+  const resolveNotificationRoute = (notification: GitHubNotification): string | null => {
+    const repoFullName = notification.repository.full_name; // owner/repo
+    const url = notification.subject.url || '';
+    const type = notification.subject.type;
+
+    // 尝试从 API URL 末尾提取 issue/PR 编号
+    const numberMatch = url.match(/\/(\d+)$/);
+    const number = numberMatch ? numberMatch[1] : null;
+
+    switch (type) {
+      case 'Issue':
+        return number ? `/repos/${repoFullName}/issues/${number}` : `/repos/${repoFullName}/issues`;
+      case 'PullRequest':
+        return number ? `/repos/${repoFullName}/pulls/${number}` : `/repos/${repoFullName}/pulls`;
+      case 'Release':
+        return `/repos/${repoFullName}/artifacts`;
+      case 'CheckSuite':
+        return `/repos/${repoFullName}/actions`;
+      case 'Commit':
+        return `/repos/${repoFullName}/commits/${repoFullName.split('/')[1]}`;
+      default:
+        return `/repos/${repoFullName}`;
+    }
+  };
+
+  /** 点击通知：自动标为已读并跳转到对应页面 */
+  const handleNotificationClick = async (notification: GitHubNotification) => {
+    if (notification.unread) {
+      // 乐观更新 UI，再执行 API 调用
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notification.id ? { ...n, unread: false } : n))
+      );
+      markNotificationRead(notification.id).catch(() => {
+        // 回滚
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === notification.id ? { ...n, unread: true } : n))
+        );
+      });
+    }
+    const route = resolveNotificationRoute(notification);
+    if (route) navigate(route);
+  };
+
   const handleMarkAllRead = async () => {
     setMarkingAll(true);
     try {
@@ -163,7 +210,8 @@ export default function NotificationsPage() {
             {notifications.map((notification) => (
               <div
                 key={notification.id}
-                className={`p-4 transition-colors ${notification.unread ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-secondary/50'}`}
+                className={`p-4 transition-colors cursor-pointer ${notification.unread ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-secondary/50'}`}
+                onClick={() => handleNotificationClick(notification)}
               >
                 <div className="flex items-start gap-3">
                   {/* 未读指示点 */}
@@ -201,7 +249,7 @@ export default function NotificationsPage() {
                       variant="ghost"
                       size="sm"
                       className="shrink-0 text-muted-foreground hover:bg-secondary h-7 text-xs"
-                      onClick={() => handleMarkRead(notification.id)}
+                      onClick={(e) => { e.stopPropagation(); handleMarkRead(notification.id); }}
                     >
                       标为已读
                     </Button>

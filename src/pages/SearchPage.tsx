@@ -30,6 +30,7 @@ import {
   getLanguageColor,
   starRepo,
   unstarRepo,
+  checkStarred,
   forkRepo,
 } from '@/services/github';
 import type { GitHubRepo, GitHubIssue, GitHubUser } from '@/types/types';
@@ -52,17 +53,16 @@ type SearchType = 'repositories' | 'issues' | 'users';
 function SearchRepoContextMenu({ repo, children }: { repo: GitHubRepo; children: React.ReactNode }) {
   const navigate = useNavigate();
 
-  const handleStar = async () => {
+  const handleToggleStar = async () => {
     try {
-      await starRepo(repo.owner.login, repo.name);
-      toast.success(`已为 ${repo.name} 加星`);
-    } catch { toast.error('操作失败'); }
-  };
-
-  const handleUnstar = async () => {
-    try {
-      await unstarRepo(repo.owner.login, repo.name);
-      toast.success(`已取消 ${repo.name} 的星标`);
+      const starred = await checkStarred(repo.owner.login, repo.name);
+      if (starred) {
+        await unstarRepo(repo.owner.login, repo.name);
+        toast.success(`已取消 ${repo.name} 的 Star`);
+      } else {
+        await starRepo(repo.owner.login, repo.name);
+        toast.success(`已为 ${repo.name} 加 Star ⭐`);
+      }
     } catch { toast.error('操作失败'); }
   };
 
@@ -100,11 +100,8 @@ function SearchRepoContextMenu({ repo, children }: { repo: GitHubRepo; children:
           <GitPullRequest className="w-3.5 h-3.5 mr-2" />查看 Pull Requests
         </ContextMenuItem>
         <ContextMenuSeparator className="bg-border" />
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleStar}>
-          <Star className="w-3.5 h-3.5 mr-2" />Star 仓库
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleUnstar}>
-          <Star className="w-3.5 h-3.5 mr-2 fill-current" />取消 Star
+        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleToggleStar}>
+          <Star className="w-3.5 h-3.5 mr-2" />Star / 取消 Star
         </ContextMenuItem>
         <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleFork}>
           <GitFork className="w-3.5 h-3.5 mr-2" />Fork 仓库

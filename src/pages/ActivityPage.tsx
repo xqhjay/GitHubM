@@ -1,6 +1,7 @@
 // 活动页 - 展示用户的 GitHub 活动
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Activity, Clock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -78,10 +79,55 @@ function getEventDescription(event: GitHubEvent): string {
 
 export default function ActivityPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<GitHubEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  /** 根据事件类型计算应用内跳转路由 */
+  const getEventRoute = (event: GitHubEvent): string => {
+    const repoName = event.repo.name; // owner/repo 格式
+    const payload = event.payload as Record<string, unknown>;
+    switch (event.type) {
+      case 'IssuesEvent': {
+        const issue = payload.issue as { number?: number } | undefined;
+        return issue?.number
+          ? `/repos/${repoName}/issues/${issue.number}`
+          : `/repos/${repoName}/issues`;
+      }
+      case 'PullRequestEvent': {
+        const pr = payload.pull_request as { number?: number } | undefined;
+        return pr?.number
+          ? `/repos/${repoName}/pulls/${pr.number}`
+          : `/repos/${repoName}/pulls`;
+      }
+      case 'IssueCommentEvent': {
+        const issue = payload.issue as { number?: number } | undefined;
+        return issue?.number
+          ? `/repos/${repoName}/issues/${issue.number}`
+          : `/repos/${repoName}/issues`;
+      }
+      case 'PullRequestReviewEvent': {
+        const pr = payload.pull_request as { number?: number } | undefined;
+        return pr?.number
+          ? `/repos/${repoName}/pulls/${pr.number}`
+          : `/repos/${repoName}/pulls`;
+      }
+      case 'PushEvent':
+        return `/repos/${repoName}/commits/${repoName.split('/')[1]}`;
+      case 'ReleaseEvent':
+        return `/repos/${repoName}/artifacts`;
+      case 'CreateEvent':
+      case 'DeleteEvent':
+      case 'WatchEvent':
+      case 'ForkEvent':
+      case 'PublicEvent':
+      case 'MemberEvent':
+      default:
+        return `/repos/${repoName}`;
+    }
+  };
 
   const loadEvents = async (pageNum = 1, append = false) => {
     if (!user) return;
@@ -151,7 +197,10 @@ export default function ActivityPage() {
                     </Avatar>
                   </div>
                   {/* 内容 */}
-                  <div className="flex-1 bg-card border border-border rounded-lg p-3 min-w-0">
+                  <div
+                    className="flex-1 bg-card border border-border rounded-lg p-3 min-w-0 cursor-pointer hover:border-primary/40 hover:bg-secondary/50 transition-colors"
+                    onClick={() => navigate(getEventRoute(event))}
+                  >
                     <div className="flex items-start gap-2 flex-wrap">
                       <p className="text-sm text-foreground flex-1 min-w-0 text-pretty">
                         {getEventDescription(event)}

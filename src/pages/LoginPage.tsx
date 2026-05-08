@@ -1,6 +1,6 @@
 // 登录页 - GitHub 令牌认证
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ExternalLink, Key } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -106,12 +106,16 @@ export default function LoginPage() {
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   id="token"
-                  type={showToken ? 'text' : 'password'}
+                  type="text"
+                  inputMode="text"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                   className="pl-10 pr-10 bg-secondary border-border text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary font-mono text-sm"
+                  style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                   autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
                   spellCheck={false}
                 />
                 <button

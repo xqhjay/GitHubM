@@ -22,6 +22,7 @@ import {
   Code2,
   Trash2,
   AlertTriangle,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -71,6 +72,7 @@ import {
   getLicenses,
   starRepo,
   unstarRepo,
+  checkStarred,
   forkRepo,
   deleteRepo,
 } from '@/services/github';
@@ -85,19 +87,16 @@ function RepoContextMenu({ repo, onDeleteSuccess }: { repo: GitHubRepo; onDelete
   const [confirmName, setConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  const handleStar = async () => {
+  const handleToggleStar = async () => {
     try {
-      await starRepo(repo.owner.login, repo.name);
-      toast.success(`已为 ${repo.name} 加星`);
-    } catch {
-      toast.error('操作失败');
-    }
-  };
-
-  const handleUnstar = async () => {
-    try {
-      await unstarRepo(repo.owner.login, repo.name);
-      toast.success(`已取消 ${repo.name} 的星标`);
+      const starred = await checkStarred(repo.owner.login, repo.name);
+      if (starred) {
+        await unstarRepo(repo.owner.login, repo.name);
+        toast.success(`已取消 ${repo.name} 的 Star`);
+      } else {
+        await starRepo(repo.owner.login, repo.name);
+        toast.success(`已为 ${repo.name} 加 Star ⭐`);
+      }
     } catch {
       toast.error('操作失败');
     }
@@ -150,15 +149,16 @@ function RepoContextMenu({ repo, onDeleteSuccess }: { repo: GitHubRepo; onDelete
           <GitBranch className="w-3.5 h-3.5 mr-2" />查看提交记录
         </ContextMenuItem>
         <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+          onClick={() => navigate(`/repos/${repo.full_name}/issues`)}>
+          <AlertCircle className="w-3.5 h-3.5 mr-2" />查看 Issues
+        </ContextMenuItem>
+        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
           onClick={() => navigate(`/repos/${repo.full_name}/pulls`)}>
           <GitPullRequest className="w-3.5 h-3.5 mr-2" />查看 Pull Requests
         </ContextMenuItem>
         <ContextMenuSeparator className="bg-border" />
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleStar}>
-          <Star className="w-3.5 h-3.5 mr-2" />Star 仓库
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleUnstar}>
-          <Star className="w-3.5 h-3.5 mr-2 fill-current" />取消 Star
+        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleToggleStar}>
+          <Star className="w-3.5 h-3.5 mr-2" />Star / 取消 Star
         </ContextMenuItem>
         <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleFork}>
           <GitFork className="w-3.5 h-3.5 mr-2" />Fork 仓库

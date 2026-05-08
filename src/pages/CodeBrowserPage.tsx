@@ -81,10 +81,42 @@ import {
   getFileInfo,
   deleteFolderContents,
 } from '@/services/github';
+import { useAuth } from '@/contexts/AuthContext';
 import type { GitHubContent, GitHubBranch } from '@/types/types';
 import { toast } from 'sonner';
 import { decodeBase64Content } from '@/lib/utils';
 import { getFileIconInfo, isImageFile } from '@/components/common/FileIcon';
+
+/**
+ * 带认证下载文件（raw.githubusercontent.com 私有仓库需 Bearer token）。
+ *
+ * Android：检测到 AndroidBridge 时直接将 URL + token 交给原生 DownloadManager，
+ *   避免 WebView 将 raw URL 拦截为"在线查看"而非下载。
+ * 浏览器：fetch + Authorization header → Blob → <a download>，
+ *   确保私有仓库文件正常下载且文件名正确。
+ */
+async function downloadCodeFile(url: string, filename: string, token: string): Promise<void> {
+  const bridge = (window as unknown as {
+    AndroidBridge?: { downloadFile?: (u: string, f: string, t: string) => void }
+  }).AndroidBridge;
+  if (bridge?.downloadFile) {
+    bridge.downloadFile(url, filename, token);
+    return;
+  }
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
 
 type ActionMode =
   | 'edit'
@@ -148,6 +180,7 @@ function FileItemIcon({ filename, isDir, isOpen = false, size = 'w-4 h-4' }: {
 export default function CodeBrowserPage() {
   const { owner, repo, '*': filePath = '' } = useParams<{ owner: string; repo: string; '*': string }>();
   const navigate = useNavigate();
+  const { token } = useAuth();
   const [contents, setContents] = useState<GitHubContent[]>([]);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileBase64, setFileBase64] = useState<string | null>(null); // 原始 base64（用于图片）
@@ -536,15 +569,20 @@ export default function CodeBrowserPage() {
       </ContextMenuItem>
       {!isImageFile(item.name) && (
         <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => openAction('edit')}>
+          onClick={() => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}>
           <Pencil className="w-3.5 h-3.5 mr-2" />编辑文件
         </ContextMenuItem>
       )}
       {item.download_url && (
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" asChild>
-          <a href={item.download_url} target="_blank" rel="noopener noreferrer">
-            <Download className="w-3.5 h-3.5 mr-2" />下载文件
-          </a>
+        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+          onClick={async () => {
+            try {
+              await downloadCodeFile(item.download_url!, item.name, token ?? '');
+            } catch {
+              toast.error('下载失败，请检查网络或权限');
+            }
+          }}>
+          <Download className="w-3.5 h-3.5 mr-2" />下载文件
         </ContextMenuItem>
       )}
       <ContextMenuItem className="text-foreground cursor-pointer text-sm"
@@ -811,11 +849,21 @@ export default function CodeBrowserPage() {
                 <Copy className="w-4 h-4" />
               </Button>
               {currentFile?.download_url && (
-                <a href={currentFile.download_url} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:bg-secondary" title="下载文件">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                </a>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-8 h-8 text-muted-foreground hover:bg-secondary"
+                  title="下载文件"
+                  onClick={async () => {
+                    try {
+                      await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? '');
+                    } catch {
+                      toast.error('下载失败，请检查网络或权限');
+                    }
+                  }}
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
               )}
               <Button
                 variant="ghost"
@@ -1087,11 +1135,20 @@ export default function CodeBrowserPage() {
                       <ImageIcon className="w-3 h-3" />图片预览
                     </Badge>
                     {currentFile.download_url && (
-                      <a href={currentFile.download_url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:bg-secondary h-8">
-                          <Download className="w-3.5 h-3.5 mr-1" />下载
-                        </Button>
-                      </a>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:bg-secondary h-8"
+                        onClick={async () => {
+                          try {
+                            await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? '');
+                          } catch {
+                            toast.error('下载失败，请检查网络或权限');
+                          }
+                        }}
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1" />下载
+                      </Button>
                     )}
                   </div>
                 </div>
