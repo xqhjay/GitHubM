@@ -176,8 +176,6 @@
   body {
     @apply bg-background text-foreground;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    /* 主题切换时平滑过渡 */
-    transition: background-color 0.2s ease, color 0.1s ease;
   }
 
   code, pre, .font-mono {
@@ -300,4 +298,22 @@
     border-top: 1px solid hsl(var(--border));
     margin: 1.5rem 0;
   }
+}
+
+/*
+ * 主题切换过渡动画
+ * 仅当 <html> 带有 theme-transitioning class 时生效（由 ThemeContext.triggerThemeTransition 管理），
+ * 避免页面初始加载时触发不必要的颜色闪烁过渡。
+ */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    fill 0.3s ease,
+    stroke 0.3s ease,
+    box-shadow 0.3s ease !important;
 }
