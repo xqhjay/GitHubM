@@ -375,7 +375,18 @@ export default function DiscussionsPage() {
             GraphQL
           </Badge>
         </h1>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <Dialog
+          open={createOpen}
+          onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) {
+              setNewTitle('');
+              setNewBody('');
+              setNewCategoryId('');
+            }
+          }}
+          modal={false}
+        >
           <DialogTrigger asChild>
             <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
               <Plus className="w-4 h-4 mr-1.5" />新建讨论
@@ -390,14 +401,18 @@ export default function DiscussionsPage() {
                 <Label className="text-sm font-normal text-foreground">分类</Label>
                 <Select value={newCategoryId} onValueChange={setNewCategoryId}>
                   <SelectTrigger className="bg-secondary border-border text-foreground">
-                    <SelectValue placeholder="选择讨论分类..." />
+                    <SelectValue placeholder={categories.length === 0 ? '暂无可用分类' : '选择讨论分类...'} />
                   </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    {categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id} className="text-foreground">
-                        {cat.emoji} {cat.name}
-                      </SelectItem>
-                    ))}
+                  <SelectContent className="bg-popover border-border z-[200]">
+                    {categories.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">暂无分类数据</div>
+                    ) : (
+                      categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id} className="text-foreground">
+                          {cat.emoji} {cat.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
