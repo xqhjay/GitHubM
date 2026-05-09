@@ -1,17 +1,105 @@
-// 主题上下文 - 支持深色/浅色/跟随系统
+// 主题上下文 - 支持深色/浅色/跟随系统 + 主题色自定义
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 
+// ── 预设主题色方案 ──────────────────────────────────────────────────────────
+export interface AccentScheme {
+  id: string;
+  label: string;
+  /** HSL 字符串（不含 hsl()），浅色模式 */
+  lightPrimary: string;
+  lightAccent: string;
+  lightRing: string;
+  /** HSL 字符串，深色模式（稍亮） */
+  darkPrimary: string;
+  darkAccent: string;
+  darkRing: string;
+  /** 用于预览的 hex 色 */
+  previewColor: string;
+}
+
+export const ACCENT_SCHEMES: AccentScheme[] = [
+  {
+    id: 'purple',
+    label: '紫罗兰',
+    lightPrimary: '263 70% 58%',
+    lightAccent:  '258 88% 66%',
+    lightRing:    '263 70% 58%',
+    darkPrimary:  '263 72% 62%',
+    darkAccent:   '258 88% 70%',
+    darkRing:     '263 72% 62%',
+    previewColor: '#7c3aed',
+  },
+  {
+    id: 'blue',
+    label: '海洋蓝',
+    lightPrimary: '217 91% 50%',
+    lightAccent:  '210 100% 56%',
+    lightRing:    '217 91% 50%',
+    darkPrimary:  '217 91% 60%',
+    darkAccent:   '210 100% 65%',
+    darkRing:     '217 91% 60%',
+    previewColor: '#1d6be3',
+  },
+  {
+    id: 'green',
+    label: '翠绿',
+    lightPrimary: '142 71% 40%',
+    lightAccent:  '152 80% 42%',
+    lightRing:    '142 71% 40%',
+    darkPrimary:  '142 65% 48%',
+    darkAccent:   '152 72% 50%',
+    darkRing:     '142 65% 48%',
+    previewColor: '#16a34a',
+  },
+  {
+    id: 'orange',
+    label: '暖橙',
+    lightPrimary: '24 95% 50%',
+    lightAccent:  '32 95% 52%',
+    lightRing:    '24 95% 50%',
+    darkPrimary:  '24 95% 58%',
+    darkAccent:   '32 95% 60%',
+    darkRing:     '24 95% 58%',
+    previewColor: '#f97316',
+  },
+  {
+    id: 'rose',
+    label: '玫瑰红',
+    lightPrimary: '346 77% 50%',
+    lightAccent:  '354 83% 57%',
+    lightRing:    '346 77% 50%',
+    darkPrimary:  '346 77% 60%',
+    darkAccent:   '354 83% 65%',
+    darkRing:     '346 77% 60%',
+    previewColor: '#e11d48',
+  },
+  {
+    id: 'cyan',
+    label: '青碧',
+    lightPrimary: '192 90% 40%',
+    lightAccent:  '186 88% 44%',
+    lightRing:    '192 90% 40%',
+    darkPrimary:  '192 88% 50%',
+    darkAccent:   '186 84% 54%',
+    darkRing:     '192 88% 50%',
+    previewColor: '#0891b2',
+  },
+];
+
 interface ThemeContextValue {
   theme: ThemeMode;
   setTheme: (t: ThemeMode) => void;
   resolvedTheme: 'dark' | 'light';
+  accentSchemeId: string;
+  setAccentScheme: (id: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
-const STORAGE_KEY = 'github_manager_theme';
+const STORAGE_KEY        = 'github_manager_theme';
+const ACCENT_STORAGE_KEY = 'github_manager_accent';
 const DARK_COLOR  = '#1e1b4b';
 const LIGHT_COLOR = '#f5f3ff';
 
@@ -23,6 +111,18 @@ function getSystemTheme(): 'dark' | 'light' {
 function updateThemeColorMeta(isDark: boolean) {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]:not([media])');
   if (meta) meta.setAttribute('content', isDark ? DARK_COLOR : LIGHT_COLOR);
+}
+
+/** 将主题色方案注入 CSS 变量 */
+function applyAccentScheme(scheme: AccentScheme, resolved: 'dark' | 'light') {
+  const root = document.documentElement;
+  const isDark = resolved === 'dark';
+  root.style.setProperty('--primary', isDark ? scheme.darkPrimary : scheme.lightPrimary);
+  root.style.setProperty('--accent',  isDark ? scheme.darkAccent  : scheme.lightAccent);
+  root.style.setProperty('--ring',    isDark ? scheme.darkRing    : scheme.lightRing);
+  // sidebar-primary / sidebar-ring 同步
+  root.style.setProperty('--sidebar-primary', isDark ? scheme.darkPrimary : scheme.lightPrimary);
+  root.style.setProperty('--sidebar-ring',    isDark ? scheme.darkRing    : scheme.lightRing);
 }
 
 function applyTheme(mode: ThemeMode) {
@@ -77,11 +177,35 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     applyTheme((localStorage.getItem(STORAGE_KEY) as ThemeMode | null) || 'dark')
   );
 
+  // ── 主题色方案 ──────────────────────────────────────────────────────────
+  const [accentSchemeId, setAccentSchemeIdState] = useState<string>(() => {
+    return localStorage.getItem(ACCENT_STORAGE_KEY) || 'purple';
+  });
+
+  // 初始化时立即应用已保存的色方案
+  useEffect(() => {
+    const scheme = ACCENT_SCHEMES.find(s => s.id === accentSchemeId) ?? ACCENT_SCHEMES[0];
+    applyAccentScheme(scheme, resolvedTheme);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setAccentScheme = useCallback((id: string) => {
+    const scheme = ACCENT_SCHEMES.find(s => s.id === id) ?? ACCENT_SCHEMES[0];
+    localStorage.setItem(ACCENT_STORAGE_KEY, scheme.id);
+    setAccentSchemeIdState(scheme.id);
+    applyAccentScheme(scheme, resolvedTheme);
+  }, [resolvedTheme]);
+
   const setTheme = useCallback((t: ThemeMode) => {
     localStorage.setItem(STORAGE_KEY, t);
     setThemeState(t);
     triggerThemeTransition(() => {
-      setResolvedTheme(applyTheme(t));
+      const resolved = applyTheme(t);
+      setResolvedTheme(resolved);
+      // 切换明暗时重新应用当前色方案，确保色值对应正确的明暗变体
+      const savedId = localStorage.getItem(ACCENT_STORAGE_KEY) || 'purple';
+      const scheme = ACCENT_SCHEMES.find(s => s.id === savedId) ?? ACCENT_SCHEMES[0];
+      applyAccentScheme(scheme, resolved);
     });
   }, []);
 
@@ -90,14 +214,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (theme !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => {
-      triggerThemeTransition(() => setResolvedTheme(applyTheme('system')));
+      triggerThemeTransition(() => {
+        const resolved = applyTheme('system');
+        setResolvedTheme(resolved);
+        const savedId = localStorage.getItem(ACCENT_STORAGE_KEY) || 'purple';
+        const scheme = ACCENT_SCHEMES.find(s => s.id === savedId) ?? ACCENT_SCHEMES[0];
+        applyAccentScheme(scheme, resolved);
+      });
     };
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme, accentSchemeId, setAccentScheme }}>
       {children}
     </ThemeContext.Provider>
   );

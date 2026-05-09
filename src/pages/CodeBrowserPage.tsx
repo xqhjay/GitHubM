@@ -311,6 +311,7 @@ export default function CodeBrowserPage() {
   useEffect(() => { loadContents(); }, [loadContents]);
 
   // 关闭操作：非编辑模式直接清理；编辑模式返回上级目录
+  // replace=true 时用 replace 导航，避免关闭后按返回键重新打开编辑器
   const closeAction = (returnToParent = false) => {
     setActionMode(null);
     setActionTarget(null);
@@ -327,7 +328,12 @@ export default function CodeBrowserPage() {
     setSearchMatchIndex(0);
     if (returnToParent && filePath) {
       const parentParts = filePath.split('/').slice(0, -1);
-      navigate(`/repos/${owner}/${repo}/code${parentParts.length ? '/' + parentParts.join('/') : ''}`);
+      // replace: true 将当前文件路由条目替换为父目录，而非新增入栈，
+      // 这样用户按返回键时不会重新打开编辑器
+      navigate(
+        `/repos/${owner}/${repo}/code${parentParts.length ? '/' + parentParts.join('/') : ''}`,
+        { replace: true }
+      );
     }
   };
 

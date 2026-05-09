@@ -15,12 +15,23 @@ import {
   ExternalLink,
   Copy,
   Code2,
+  Clock,
+  X,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   searchRepositories,
   searchIssues,
@@ -42,12 +53,43 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { cn } from '@/lib/utils';
 
 // GitHub Search API 最多返回 1000 条结果
 const PER_PAGE = 20;
 const MAX_RESULTS = 1000;
+const HISTORY_STORAGE_KEY = 'github_search_history';
+const SORT_STORAGE_KEY    = 'github_search_sort';
+const MAX_HISTORY = 12;
 
 type SearchType = 'repositories' | 'issues' | 'users';
+type SortOption  = 'best-match' | 'stars' | 'forks' | 'updated';
+
+interface SortConfig { value: SortOption; label: string; apiSort?: string; apiOrder?: string }
+
+const SORT_OPTIONS: SortConfig[] = [
+  { value: 'best-match', label: '最佳匹配' },
+  { value: 'stars',      label: 'Stars 最多',  apiSort: 'stars',   apiOrder: 'desc' },
+  { value: 'forks',      label: 'Forks 最多',  apiSort: 'forks',   apiOrder: 'desc' },
+  { value: 'updated',    label: '最近更新',     apiSort: 'updated', apiOrder: 'desc' },
+];
+
+// ── 搜索历史工具函数 ──────────────────────────────────────────────────────
+function loadHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveHistory(query: string) {
+  const prev = loadHistory().filter(q => q !== query);
+  const next = [query, ...prev].slice(0, MAX_HISTORY);
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+}
+
+function clearHistory() {
+  localStorage.removeItem(HISTORY_STORAGE_KEY);
+}
 
 // 搜索结果仓库右键菜单
 function SearchRepoContextMenu({ repo, children }: { repo: GitHubRepo; children: React.ReactNode }) {
@@ -126,28 +168,56 @@ export default function SearchPage() {
 
   // 从 URL 参数读取初始状态
   const initQuery = searchParams.get('q') || '';
-  const initType = (searchParams.get('type') as SearchType) || 'repositories';
-  const initPage = parseInt(searchParams.get('page') || '1', 10);
+  const initType  = (searchParams.get('type') as SearchType) || 'repositories';
+  const initPage  = parseInt(searchParams.get('page') || '1', 10);
 
-  const [query, setQuery] = useState(initQuery);
+  const [query, setQuery]           = useState(initQuery);
   const [searchType, setSearchType] = useState<SearchType>(initType);
-  const [loading, setLoading] = useState(false);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [issues, setIssues] = useState<GitHubIssue[]>([]);
-  const [users, setUsers] = useState<GitHubUser[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [repos, setRepos]           = useState<GitHubRepo[]>([]);
+  const [issues, setIssues]         = useState<GitHubIssue[]>([]);
+  const [users, setUsers]           = useState<GitHubUser[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched]     = useState(false);
   const [currentPage, setCurrentPage] = useState(initPage);
+
+  // 搜索历史
+  const [history, setHistory]         = useState<string[]>(() => loadHistory());
+  const [showHistory, setShowHistory] = useState(false);
+  const inputRef                       = useRef<HTMLInputElement>(null);
+  const historyRef                     = useRef<HTMLDivElement>(null);
+
+  // 排序
+  const [sortOption, setSortOption] = useState<SortOption>(() => {
+    return (localStorage.getItem(SORT_STORAGE_KEY) as SortOption | null) || 'best-match';
+  });
 
   const totalPages = Math.min(Math.ceil(totalCount / PER_PAGE), MAX_RESULTS / PER_PAGE);
 
-  const handleSearch = useCallback(async (searchQuery: string, type: SearchType, page = 1) => {
+  const handleSearch = useCallback(async (
+    searchQuery: string,
+    type: SearchType,
+    page = 1,
+    sort: SortOption = sortOption,
+  ) => {
     if (!searchQuery.trim()) return;
     setLoading(true);
     setSearched(true);
+    setShowHistory(false);
+    // 保存历史记录
+    saveHistory(searchQuery.trim());
+    setHistory(loadHistory());
     try {
+      const sortCfg = SORT_OPTIONS.find(s => s.value === sort);
+      const sortParam = sortCfg?.apiSort as 'stars' | 'forks' | 'updated' | undefined;
+      const orderParam = sortCfg?.apiOrder as 'asc' | 'desc' | undefined;
+
       if (type === 'repositories') {
-        const result = await searchRepositories(searchQuery, { per_page: PER_PAGE, page });
+        const result = await searchRepositories(searchQuery, {
+          per_page: PER_PAGE,
+          page,
+          ...(sortParam ? { sort: sortParam, order: orderParam } : {}),
+        });
         setRepos(result.items);
         setTotalCount(result.total_count);
         setIssues([]);
@@ -175,7 +245,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, [setSearchParams]);
+  }, [setSearchParams, sortOption]);
 
   // 首次挂载：如果 URL 中已有搜索参数则自动恢复搜索结果
   const didInit = useRef(false);
@@ -187,9 +257,54 @@ export default function SearchPage() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── 全局快捷键：/ 或 Ctrl+K 唤起搜索框 ──────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isInputActive =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable);
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        setShowHistory(true);
+        return;
+      }
+      if (e.key === '/' && !isInputActive) {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setShowHistory(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // 点击历史面板外部关闭
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        historyRef.current &&
+        !historyRef.current.contains(e.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(e.target as Node)
+      ) {
+        setShowHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch(query, searchType, 1);
+    }
+    if (e.key === 'Escape') {
+      setShowHistory(false);
     }
   };
 
@@ -197,6 +312,22 @@ export default function SearchPage() {
     if (page < 1 || page > totalPages || loading) return;
     handleSearch(query, searchType, page);
   };
+
+  const handleSortChange = (newSort: SortOption) => {
+    localStorage.setItem(SORT_STORAGE_KEY, newSort);
+    setSortOption(newSort);
+    if (searched && query.trim()) {
+      handleSearch(query, searchType, 1, newSort);
+    }
+  };
+
+  const handleClearHistory = () => {
+    clearHistory();
+    setHistory([]);
+    toast.success('搜索历史已清除');
+  };
+
+  const currentSortLabel = SORT_OPTIONS.find(s => s.value === sortOption)?.label ?? '最佳匹配';
 
   const TABS: Array<{ type: SearchType; label: string; icon: typeof BookOpen }> = [
     { type: 'repositories', label: '仓库', icon: BookOpen },
@@ -220,21 +351,113 @@ export default function SearchPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-4xl mx-auto">
-      <h1 className="text-xl font-bold text-foreground">全局搜索</h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-xl font-bold text-foreground">全局搜索</h1>
+        {/* 快捷键提示 */}
+        <span className="text-xs text-muted-foreground hidden md:flex items-center gap-1.5">
+          按
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-secondary text-xs font-mono">/</kbd>
+          或
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-secondary text-xs font-mono">Ctrl K</kbd>
+          唤起搜索
+        </span>
+      </div>
 
-      {/* 搜索框 */}
+      {/* 搜索框 + 排序 */}
       <div className="flex gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
+            ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="搜索 GitHub..."
+            onFocus={() => setShowHistory(true)}
+            placeholder="搜索 GitHub…"
             className="pl-9 bg-secondary border-border text-foreground placeholder:text-muted-foreground text-base"
-            autoFocus={!initQuery}
           />
+          {/* 搜索历史下拉 */}
+          {showHistory && history.length > 0 && (
+            <div
+              ref={historyRef}
+              className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                <span className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+                  <Clock className="w-3 h-3" />搜索历史
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  清除全部
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {history.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-secondary/60 transition-colors text-left"
+                    onMouseDown={(e) => {
+                      // 防止 blur 先触发隐藏历史
+                      e.preventDefault();
+                      setQuery(item);
+                      handleSearch(item, searchType, 1);
+                    }}
+                  >
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1 truncate">{item}</span>
+                    <X
+                      className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const next = history.filter((_, i) => i !== idx);
+                        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+                        setHistory(next);
+                      }}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* 排序下拉（仅仓库搜索有效） */}
+        {searchType === 'repositories' && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 h-9 gap-1.5 border-border bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 text-xs hidden sm:flex"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                {currentSortLabel}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-popover border-border w-40">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">排序方式</DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-border" />
+              {SORT_OPTIONS.map(opt => (
+                <DropdownMenuItem
+                  key={opt.value}
+                  className={cn(
+                    'cursor-pointer text-sm',
+                    sortOption === opt.value ? 'text-primary font-medium' : 'text-foreground'
+                  )}
+                  onClick={() => handleSortChange(opt.value)}
+                >
+                  {opt.label}
+                  {sortOption === opt.value && <span className="ml-auto text-primary text-xs">✓</span>}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         <Button
           className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
           onClick={() => handleSearch(query, searchType, 1)}
@@ -267,7 +490,7 @@ export default function SearchPage() {
         ))}
       </div>
 
-      {/* 结果数量与分页信息 */}
+      {/* 结果数量 + 移动端排序 */}
       {searched && !loading && (
         <div className="flex items-center justify-between flex-wrap gap-2">
           <p className="text-sm text-muted-foreground">
@@ -278,6 +501,33 @@ export default function SearchPage() {
               </span>
             )}
           </p>
+          {/* 移动端排序按钮 */}
+          {searchType === 'repositories' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="sm:hidden h-8 gap-1.5 border-border bg-secondary text-muted-foreground text-xs"
+                >
+                  <ArrowUpDown className="w-3 h-3" />
+                  {currentSortLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-popover border-border w-40">
+                {SORT_OPTIONS.map(opt => (
+                  <DropdownMenuItem
+                    key={opt.value}
+                    className={cn('cursor-pointer text-sm', sortOption === opt.value ? 'text-primary font-medium' : 'text-foreground')}
+                    onClick={() => handleSortChange(opt.value)}
+                  >
+                    {opt.label}
+                    {sortOption === opt.value && <span className="ml-auto text-primary text-xs">✓</span>}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
 
@@ -293,6 +543,11 @@ export default function SearchPage() {
           <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="text-foreground font-medium">搜索 GitHub</p>
           <p className="text-muted-foreground text-sm mt-1">输入关键词，按回车或点击搜索</p>
+          <p className="text-muted-foreground text-xs mt-1">
+            快捷键：<kbd className="px-1 py-0.5 rounded border border-border bg-secondary font-mono">/</kbd>
+            {' '}或{' '}
+            <kbd className="px-1 py-0.5 rounded border border-border bg-secondary font-mono">Ctrl K</kbd>
+          </p>
         </div>
       ) : (
         <div className="space-y-0 bg-card border border-border rounded-lg overflow-hidden">

@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Loader2,
   User,
+  Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme, type ThemeMode } from '@/contexts/ThemeContext';
+import { useTheme, type ThemeMode, ACCENT_SCHEMES } from '@/contexts/ThemeContext';
 import { updateUserProfile } from '@/services/github';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -235,7 +236,7 @@ function EditProfileDialog({ open, onOpenChange }: EditProfileDialogProps) {
 
 export default function SettingsPage() {
   const { user, rateLimit, logout, login, token, refreshRateLimit } = useAuth();
-  const { theme: currentTheme, setTheme } = useTheme();
+  const { theme: currentTheme, setTheme, accentSchemeId, setAccentScheme } = useTheme();
   const navigate = useNavigate();
   const [showToken, setShowToken] = useState(false);
   const [newToken, setNewToken] = useState('');
@@ -410,6 +411,45 @@ export default function SettingsPage() {
         </div>
         <p className="text-xs text-muted-foreground mt-3">
           {currentTheme === 'system' ? '当前跟随系统偏好自动切换主题' : `当前使用${currentTheme === 'dark' ? '深色' : '浅色'}主题`}
+        </p>
+      </div>
+
+      {/* 主题色方案 */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Palette className="w-4 h-4 text-primary" />
+          强调色方案
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          {ACCENT_SCHEMES.map((scheme) => (
+            <button
+              key={scheme.id}
+              type="button"
+              onClick={() => setAccentScheme(scheme.id)}
+              className={cn(
+                'flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all',
+                accentSchemeId === scheme.id
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border bg-secondary/50 hover:border-border/70 hover:bg-secondary'
+              )}
+            >
+              {/* 色圆 */}
+              <span
+                className="w-7 h-7 rounded-full shadow-sm ring-2 ring-border/40 shrink-0"
+                style={{ backgroundColor: scheme.previewColor }}
+              />
+              <span className={cn(
+                'text-xs font-medium',
+                accentSchemeId === scheme.id ? 'text-primary' : 'text-muted-foreground'
+              )}>
+                {scheme.label}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          当前方案：<span className="text-foreground font-medium">{ACCENT_SCHEMES.find(s => s.id === accentSchemeId)?.label ?? '紫罗兰'}</span>
+          ，选择后立即生效并持久化保存
         </p>
       </div>
 

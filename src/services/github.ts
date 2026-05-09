@@ -716,10 +716,11 @@ export async function searchRepositories(
   query: string,
   params: { sort?: 'stars' | 'forks' | 'updated'; order?: SortDirection; per_page?: number; page?: number } = {}
 ): Promise<GitHubSearchResult<GitHubRepo>> {
-  const { sort = 'stars', order = 'desc', per_page = 20, page = 1 } = params;
+  const { sort, order = 'desc', per_page = 20, page = 1 } = params;
   const q = encodeURIComponent(query);
+  const sortQS = sort ? `&sort=${sort}&order=${order}` : '';
   return request<GitHubSearchResult<GitHubRepo>>(
-    `/search/repositories?q=${q}&sort=${sort}&order=${order}&per_page=${per_page}&page=${page}`
+    `/search/repositories?q=${q}${sortQS}&per_page=${per_page}&page=${page}`
   );
 }
 
