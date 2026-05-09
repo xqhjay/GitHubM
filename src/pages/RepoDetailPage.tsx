@@ -1,6 +1,6 @@
 // 仓库详情页
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Star,
@@ -416,63 +416,50 @@ export default function RepoDetailPage() {
         )}
       </div>
 
-      {/* 功能导航网格 —— 根据 isOwner 动态调整 */}
+      {/* 功能导航网格 —— 统一数组，ownerOnly 字段按 isOwner 过滤 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {/* 通用功能：Issues / PR / 代码浏览（所有人均可见） */}
-        {[
-          { label: 'Issues',        icon: AlertCircle,    count: repo.open_issues_count, path: 'issues' },
-          { label: 'Pull Requests', icon: GitPullRequest, count: null,                   path: 'pulls' },
-          { label: '代码浏览',      icon: Code,            count: null,                   path: 'code' },
-          { label: '提交历史',      icon: Clock,           count: null,                   path: 'commits' },
-          { label: 'Discussions',   icon: MessageCircle,   count: null,                   path: 'discussions' },
-          { label: 'Wiki',          icon: BookOpen,        count: null,                   path: 'wiki' },
-          { label: 'Projects',      icon: LayoutGrid,      count: null,                   path: 'projects' },
-          { label: 'Actions',       icon: Play,            count: null,                   path: 'actions' },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.label}
-              type="button"
-              className="bg-card border border-border rounded-lg p-3 hover:bg-secondary/50 transition-colors text-left group"
-              onClick={() => navigate(`/repos/${repo.full_name}/${item.path}`)}
-            >
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors shrink-0" />
-                <span className="text-sm text-foreground group-hover:text-accent transition-colors truncate">{item.label}</span>
-                {item.count !== null && (
-                  <Badge variant="outline" className="ml-auto border-border text-muted-foreground text-xs shrink-0">
-                    {item.count}
-                  </Badge>
-                )}
-              </div>
-            </button>
-          );
-        })}
-
-        {/* 仅自己的仓库：管理功能 */}
-        {isOwner && [
-          { label: '分支管理',  icon: GitBranch, path: 'branches' },
-          { label: '协作者',    icon: Users,     path: 'collaborators' },
-          { label: '产物下载',  icon: Package,   path: 'artifacts' },
-          { label: 'Pages 部署',icon: Globe,     path: 'pages' },
-          { label: '上传文件',  icon: Upload,    path: 'upload' },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.label}
-              type="button"
-              className="bg-card border border-border rounded-lg p-3 hover:bg-secondary/50 transition-colors text-left group"
-              onClick={() => navigate(`/repos/${repo.full_name}/${item.path}`)}
-            >
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors shrink-0" />
-                <span className="text-sm text-foreground group-hover:text-accent transition-colors truncate">{item.label}</span>
-              </div>
-            </button>
-          );
-        })}
+        {([
+          // ── 前列：高频入口（所有人可见）──
+          { label: '代码浏览',        icon: Code,           path: 'code',          count: null,                   ownerOnly: false },
+          { label: '产物下载',        icon: Package,        path: 'artifacts',     count: null,                   ownerOnly: false },
+          // ── 前列：管理入口（仅 owner）──
+          { label: 'Pages 部署',      icon: Globe,          path: 'pages',         count: null,                   ownerOnly: true  },
+          // ── 核心协作功能（所有人可见）──
+          { label: 'Issues',          icon: AlertCircle,    path: 'issues',        count: repo.open_issues_count, ownerOnly: false },
+          { label: 'Pull Requests',   icon: GitPullRequest, path: 'pulls',         count: null,                   ownerOnly: false },
+          { label: '提交历史',        icon: Clock,          path: 'commits',       count: null,                   ownerOnly: false },
+          { label: isOwner ? '分支管理' : '分支浏览', icon: GitBranch, path: 'branches', count: null,             ownerOnly: false },
+          { label: 'Actions',         icon: Play,           path: 'actions',       count: null,                   ownerOnly: false },
+          // ── 管理功能（仅 owner）──
+          { label: '协作者',          icon: Users,          path: 'collaborators', count: null,                   ownerOnly: true  },
+          { label: '上传文件',        icon: Upload,         path: 'upload',        count: null,                   ownerOnly: true  },
+          // ── 社区功能（所有人可见）──
+          { label: 'Discussions',     icon: MessageCircle,  path: 'discussions',   count: null,                   ownerOnly: false },
+          { label: 'Wiki',            icon: BookOpen,       path: 'wiki',          count: null,                   ownerOnly: false },
+          { label: 'Projects',        icon: LayoutGrid,     path: 'projects',      count: null,                   ownerOnly: false },
+        ] as Array<{ label: string; icon: React.ElementType; path: string; count: number | null; ownerOnly: boolean }>)
+          .filter((item) => !item.ownerOnly || isOwner)
+          .map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.path}
+                type="button"
+                className="bg-card border border-border rounded-lg p-3 hover:bg-secondary/50 transition-colors text-left group"
+                onClick={() => navigate(`/repos/${repo.full_name}/${item.path}`)}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors shrink-0" />
+                  <span className="text-sm text-foreground group-hover:text-accent transition-colors truncate">{item.label}</span>
+                  {item.count !== null && (
+                    <Badge variant="outline" className="ml-auto border-border text-muted-foreground text-xs shrink-0">
+                      {item.count}
+                    </Badge>
+                  )}
+                </div>
+              </button>
+            );
+          })}
 
         {/* 他人仓库：查看 Forks 列表 */}
         {!isOwner && (
