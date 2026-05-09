@@ -26,7 +26,6 @@ import {
   MessageCircle,
   BookOpen,
   LayoutGrid,
-  Edit,
   Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -458,7 +457,6 @@ export default function RepoDetailPage() {
           { label: '产物下载',  icon: Package,   path: 'artifacts' },
           { label: 'Pages 部署',icon: Globe,     path: 'pages' },
           { label: '上传文件',  icon: Upload,    path: 'upload' },
-          { label: '仓库设置',  icon: Edit,      path: 'settings', action: openEditDialog },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -466,7 +464,7 @@ export default function RepoDetailPage() {
               key={item.label}
               type="button"
               className="bg-card border border-border rounded-lg p-3 hover:bg-secondary/50 transition-colors text-left group"
-              onClick={() => item.action ? item.action() : navigate(`/repos/${repo.full_name}/${item.path}`)}
+              onClick={() => navigate(`/repos/${repo.full_name}/${item.path}`)}
             >
               <div className="flex items-center gap-2">
                 <Icon className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors shrink-0" />
