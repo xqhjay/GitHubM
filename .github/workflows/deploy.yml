@@ -158,9 +158,10 @@ jobs:
 
       # ── 签名配置 ──────────────────────────────────────────────────
       # 优先使用仓库 Secret 中的稳定 Release Keystore（支持跨版本覆盖安装）；
-      # 未配置 Secret 时，用 keytool -genkeypair 自动生成临时 Keystore 并用于签名，
-      # 使 APK 始终以 Release 模式构建（而非 Debug），但该临时证书每次构建都会变化，
-      # 无法跨不同构建版本覆盖安装。如需稳定签名，请按注释说明配置 Secrets。
+      # 三级签名方案：
+      #   方案 A：Secret RELEASE_KEYSTORE_BASE64（稳定，跨版本覆盖安装）
+      #   方案 2：仓库自带 android/release.keystore（已被 git 追踪，直接复用）
+      #   方案 B：keytool 自动生成临时 Keystore（每次构建不同，不支持覆盖安装）
       - name: 配置 Release Keystore
         id: keystore
         env:
@@ -170,7 +171,6 @@ jobs:
           RELEASE_KEY_PASSWORD:    ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           KEYSTORE_PATH="${GITHUB_WORKSPACE}/android/release.keystore"
-
           if [ -n "${RELEASE_KEYSTORE_BASE64}" ]; then
             # ── 方案 A：使用仓库 Secret 中的稳定 Keystore ────────────
             echo "✅ 使用 Secret 中的 Release Keystore（支持覆盖安装）"
@@ -178,6 +178,13 @@ jobs:
             STORE_PASS="${RELEASE_STORE_PASSWORD}"
             KEY_ALIAS_VAL="${RELEASE_KEY_ALIAS}"
             KEY_PASS="${RELEASE_KEY_PASSWORD}"
+            echo "was_generated=false" >> "$GITHUB_OUTPUT"
+          elif [ -f "${KEYSTORE_PATH}" ]; then
+            # ── 方案 2：仓库自带 keystore（已被 git 追踪）────────────
+            echo "✅ 使用仓库自带的 release.keystore（支持覆盖安装）"
+            STORE_PASS="GithubManager@CI"
+            KEY_ALIAS_VAL="github-manager"
+            KEY_PASS="GithubManager@CI"
             echo "was_generated=false" >> "$GITHUB_OUTPUT"
           else
             # ── 方案 B：Secret 未配置，用 keytool 自动生成临时 Keystore ─
@@ -190,7 +197,6 @@ jobs:
             STORE_PASS="GithubManager@CI"
             KEY_ALIAS_VAL="github-manager"
             KEY_PASS="GithubManager@CI"
-
             keytool -genkeypair -v \
               -keystore "${KEYSTORE_PATH}" \
               -alias "${KEY_ALIAS_VAL}" \
@@ -201,9 +207,7 @@ jobs:
               -keypass "${KEY_PASS}" \
               -dname "CN=GitHub Manager CI, OU=Build, O=CI, L=CN, S=CN, C=CN" \
               -noprompt
-
             echo "✅ 临时 Keystore 生成成功：${KEYSTORE_PATH}"
-
             # 将 base64 写入临时文件，供后续写入 Secrets 步骤使用
             base64 -w 0 "${KEYSTORE_PATH}" > /tmp/keystore_b64.txt
             echo "was_generated=true"                 >> "$GITHUB_OUTPUT"

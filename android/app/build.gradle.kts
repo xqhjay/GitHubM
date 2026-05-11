@@ -35,12 +35,21 @@ android {
                 keyAlias = ciKeyAlias
                 keyPassword = ciKeyPass
             } else {
-                // 本地开发：使用 Android 默认 debug.keystore，签名一致可覆盖安装
-                val debugKeystore = File(System.getProperty("user.home"), ".android/debug.keystore")
-                storeFile = debugKeystore
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+                // 仓库默认签名优先：若根目录存在 release.keystore，直接使用
+                val keystoreFile = rootProject.file("release.keystore")
+                if (keystoreFile.exists()) {
+                    storeFile = keystoreFile
+                    storePassword = "GithubManager@CI"
+                    keyAlias = "github-manager"
+                    keyPassword = "GithubManager@CI"
+                } else {
+                    // 本地开发：使用 Android 默认 debug.keystore，签名一致可覆盖安装
+                    val debugKeystore = File(System.getProperty("user.home"), ".android/debug.keystore")
+                    storeFile = debugKeystore
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
             }
         }
     }
