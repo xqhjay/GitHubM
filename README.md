@@ -139,7 +139,7 @@ pnpm exec vite build    # 产物输出到 dist/
 
 ##  Android APK
 
-每次推送 `main` 分支时，GitHub Actions 自动构建 Android Debug APK。
+每次推送 `main` 分支时，GitHub Actions 自动构建并签名 Release APK。
 
 | 项目 | 说明 |
 |------|------|
@@ -149,18 +149,43 @@ pnpm exec vite build    # 产物输出到 dist/
 | **架构** | WebView 壳 + 内嵌 Web 资源 |
 | **下载** | [Releases 页面](https://github.com/qq5855144/GitHubM/releases) |
 
+### 🔑 配置稳定签名（支持跨版本覆盖安装）
+
+项目内置 Release Keystore（`android/release.keystore`），只需一次配置即可让所有构建使用同一证书：
+
+**方法一：脚本自动配置（推荐）**
+
+```bash
+# 需已安装 GitHub CLI 并登录（gh auth login）
+bash scripts/setup-keystore-secrets.sh
+```
+
+**方法二：手动配置**
+
+前往仓库 **Settings → Secrets and variables → Actions**，添加以下 4 个 Secret：
+
+| Secret 名称 | 值 |
+|---|---|
+| `RELEASE_KEYSTORE_BASE64` | `base64 -w 0 android/release.keystore` 的输出 |
+| `RELEASE_KEY_ALIAS` | `github-manager` |
+| `RELEASE_STORE_PASSWORD` | `GithubManager@2024` |
+| `RELEASE_KEY_PASSWORD` | `GithubManager@2024` |
+
+> 配置完成后，每次 CI 构建的 APK 签名一致，支持直接覆盖安装旧版本，无需卸载。  
+> 未配置 Secrets 时 CI 仍可正常构建，但每次生成不同临时证书，无法覆盖安装。
+
 ---
 
 ##  CI/CD 工作流
 
 ```
 push main ──► build-web ──┬── deploy-pages ──► GitHub Pages
-                          └── build-apk  ──► APK Artifact
+                          └── build-apk  ──► Release APK → GitHub Release
 ```
 
 - **触发条件**：推送到 `main` 分支 / 手动触发
 - **Web 部署**：Vite 构建 → `actions/deploy-pages@v4` → GitHub Pages
-- **APK 构建**：下载 Web 产物 → 复制到 Android assets → Gradle 构建 → 上传 Artifact（保留 30 天）
+- **APK 构建**：下载 Web 产物 → 复制到 Android assets → Gradle 签名构建 → 发布 GitHub Release
 
 ---
 

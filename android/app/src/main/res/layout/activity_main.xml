@@ -35,19 +35,19 @@
             android:layout_weight="1" />
 
         <!--
-          ══ M3 标准底部导航容器 ══════════════════════════════════════
-          结构：顶部分割线 + BottomNavigationView（固定 80dp，M3 规范）+ navBarSpacer
+          ══ 底部导航容器 ═════════════════════════════════════════════
+          结构：顶部分割线 + BottomNavigationView（62dp，紧凑规格）+ navBarSpacer
 
-          高度说明（M3 labeled 模式）：
-            active indicator 胶囊  : 32dp
-            标签文字（11sp）        : ~16dp
-            上下内边距              : ~16dp（合计 ~32dp）
-            总计                   : 80dp  ← M3 官方规格
+          高度说明（labeled 模式，紧凑版）：
+            图标区域                : 20dp
+            图标与文字间距          : 2dp
+            标签文字（10sp）        : ~13dp
+            上下内边距              : ~13dp（合计 ~27dp）
+            总计                   : 62dp
 
           Active Indicator：
-            圆角胶囊（cornerRadius = 999dp），颜色 = primaryContainer 淡紫，
-            由 itemActiveIndicatorStyle + itemActiveIndicatorColor 共同控制，
-            运行时通过 applyNativeTheme 动态更新以匹配用户选择的强调色。
+            透明色，选中状态仅通过图标/文字强调色区分，
+            点击涟漪效果覆盖整个 item 区域（图标+文字视为整体）。
 
           不使用 updatePadding(bottom)：系统导航条高度由 navBarSpacer 独立承接。
         -->
@@ -69,14 +69,14 @@
                 android:id="@+id/bottomNav"
                 style="@style/Widget.Material3.BottomNavigationView"
                 android:layout_width="match_parent"
-                android:layout_height="80dp"
+                android:layout_height="62dp"
                 android:background="@android:color/transparent"
                 app:menu="@menu/bottom_nav_menu"
                 app:itemIconTint="@color/bottom_nav_colors"
                 app:itemTextColor="@color/bottom_nav_colors"
                 app:itemTextAppearanceActive="@style/BottomNavTextActive"
                 app:itemTextAppearanceInactive="@style/BottomNavTextInactive"
-                app:itemIconSize="22dp"
+                app:itemIconSize="20dp"
                 app:itemActiveIndicatorStyle="@style/BottomNavActiveIndicator"
                 app:labelVisibilityMode="labeled"
                 app:elevation="0dp" />

@@ -197,8 +197,8 @@ class MainActivity : AppCompatActivity() {
                 bottomNav.itemIconTintList = iconColors
                 bottomNav.itemTextColor   = iconColors
                 currentAccentColor = color
-                // M3 Active Indicator 颜色同步
-                bottomNav.itemActiveIndicatorColor = ThemeUtils.indicatorColor(color, darkTheme)
+                // Active Indicator 透明：选中仅靠图标/文字强调色区分
+                bottomNav.itemActiveIndicatorColor = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
             }
         }
 
@@ -730,8 +730,8 @@ class MainActivity : AppCompatActivity() {
                                 currentAccentColor = color
                                 bottomNav.itemIconTintList = iconColors
                                 bottomNav.itemTextColor   = iconColors
-                                // M3 Active Indicator 颜色同步
-                                bottomNav.itemActiveIndicatorColor = ThemeUtils.indicatorColor(color, darkTheme)
+                                // Active Indicator 透明：选中仅靠图标/文字强调色区分
+                                bottomNav.itemActiveIndicatorColor = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
                             }
                         } catch (_: Exception) { /* 静默忽略 */ }
                     }
@@ -829,8 +829,9 @@ class MainActivity : AppCompatActivity() {
         bottomNav.itemIconTintList = iconColors
         bottomNav.itemTextColor   = iconColors
 
-        // ── M3 Active Indicator 颜色（委托给 ThemeUtils.indicatorColor，保持逻辑单一来源）
-        bottomNav.itemActiveIndicatorColor = ThemeUtils.indicatorColor(currentAccentColor, isDark)
+        // ── M3 Active Indicator 设为透明：选中状态仅通过图标/文字强调色区分，
+        //    点击涟漪覆盖整个 item 区域（图标+文字视为整体）
+        bottomNav.itemActiveIndicatorColor = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
     }
 
     private fun setupWebChromeClient() {
