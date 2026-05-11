@@ -16,7 +16,6 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import androidx.lifecycle.lifecycleScope
 import android.provider.MediaStore
 import android.util.Base64
 import android.view.View
@@ -40,11 +39,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -302,6 +304,12 @@ class MainActivity : AppCompatActivity() {
         // 停止光标闪烁，取消所有启动画面相关的 Handler 消息
         cursorBlinkRunnable?.let { splashHandler.removeCallbacks(it) }
         splashHandler.removeCallbacksAndMessages(null)
+
+        // 恢复状态栏：启动画面结束，主界面需要显示状态栏
+        val ctrl = WindowInsetsControllerCompat(window, window.decorView)
+        ctrl.show(WindowInsetsCompat.Type.statusBars())
+        ctrl.isAppearanceLightStatusBars = !darkTheme
+
         // 淡出 + 轻微放大，营造优雅的启动画面消散效果
         splashOverlay.animate()
             .alpha(0f)
@@ -386,18 +394,25 @@ class MainActivity : AppCompatActivity() {
             splashOverlay.findViewById<android.widget.TextView>(R.id.splashPrompt)
                 ?.setTextColor(color)
 
-            // 浅色模式下 Octocat 图标跟随 accent 色；深色模式保持白色
+            // 浅色模式：Octocat 图标跟随 accent 色；深色模式：用资源色 splash_icon_tint（淡紫白），
+            // 在深色背景上散发光感，比纯白更协调
             val nightMask = resources.configuration.uiMode and
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK
             val isNight = nightMask == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            if (!isNight) {
-                splashOverlay.findViewById<android.widget.ImageView>(R.id.splashLogo)
-                    ?.imageTintList = tintList
-            }
+            splashOverlay.findViewById<android.widget.ImageView>(R.id.splashLogo)
+                ?.imageTintList = if (isNight) {
+                    android.content.res.ColorStateList.valueOf(getColor(R.color.splash_icon_tint))
+                } else {
+                    tintList
+                }
 
-            // 四角装饰线：统一注入 accent 色（带透明度）
-            val cornerAlpha = 0x40  // 25% 透明度
-            val cornerColor = (cornerAlpha shl 24) or (color and 0x00FFFFFF)
+            // 四角装饰线：深色下用资源色（更高透明度紫色）；浅色下注入 accent + 透明度
+            val cornerColor = if (isNight) {
+                getColor(R.color.splash_corner_line)
+            } else {
+                val cornerAlpha = 0x40  // 25% 透明度
+                (cornerAlpha shl 24) or (color and 0x00FFFFFF)
+            }
             listOf(
                 R.id.splashCornerTL, R.id.splashCornerTR,
                 R.id.splashCornerBL, R.id.splashCornerBR
@@ -447,6 +462,13 @@ class MainActivity : AppCompatActivity() {
         val insetsController = WindowInsetsControllerCompat(window, window.decorView)
         insetsController.isAppearanceLightStatusBars     = !isInitialDark
         insetsController.isAppearanceLightNavigationBars = !isInitialDark
+
+        // ── 启动画面沉浸全屏：隐藏状态栏 ────────────────────────────
+        // shortEdges 模式 + 状态栏隐藏 = 内容延伸至刘海区域，视觉完全全屏。
+        // dismissSplash 时自动恢复，避免主界面也无状态栏。
+        insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        insetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContentView(R.layout.activity_main)
 
@@ -556,9 +578,8 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebViewSettings() {
-        // WebView 背景跟随当前主题，避免深色/浅色主题下背景颜色不一致
-        val bgHex = if (darkTheme) "#111117" else "#f8f8fb"
-        webView.setBackgroundColor(Color.parseColor(bgHex))
+        // WebView 背景色直接读颜色资源，与 XML 声明保持单一来源
+        webView.setBackgroundColor(getColor(R.color.main_bg))
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -716,30 +737,42 @@ class MainActivity : AppCompatActivity() {
      * 颜色值与 Web 端 index.css 的 HSL 变量保持一致：
      *   深色：background=#111117，sidebar-background=#0d0d11
      *   浅色：background=#f8f8fb，sidebar-background=#f6f4fa
+     * 主题切换时通过 ValueAnimator 平滑过渡颜色，消除生硬跳变。
      */
     private fun applyNativeTheme(isDark: Boolean) {
         darkTheme = isDark
-        // 同步 WebView 背景色，避免白/黑背景闪烁
-        webView.setBackgroundColor(
-            Color.parseColor(if (isDark) "#111117" else "#f8f8fb")
-        )
 
-        // ── 边到边模式下系统栏图标颜色 ────────────────────────────────
-        // API 35 强制边到边，statusBarColor/navigationBarColor 已废弃且无效。
-        // 使用 WindowInsetsControllerCompat 统一控制浅/深色图标外观。
+        // ── 目标颜色（读颜色资源，与 colors.xml 保持单一来源）─────────
+        val targetMainBg    = getColor(R.color.main_bg)
+        val targetSidebarBg = getColor(R.color.sidebar_bg)
+        val targetUnselected = getColor(R.color.nav_unselected)
+
+        // ── WebView 背景：平滑过渡，消除主题切换时的白/黑闪烁 ─────────
+        val fromWebBg = webView.solidColor.takeIf { it != 0 } ?: targetMainBg
+        ValueAnimator.ofObject(ArgbEvaluator(), fromWebBg, targetMainBg).apply {
+            duration = 250
+            addUpdateListener { webView.setBackgroundColor(it.animatedValue as Int) }
+            start()
+        }
+
+        // ── 系统栏图标颜色（浅色图标=深色主题，深色图标=浅色主题）──────
         val insetsController = WindowInsetsControllerCompat(window, window.decorView)
         insetsController.isAppearanceLightStatusBars     = !isDark
         insetsController.isAppearanceLightNavigationBars = !isDark
 
-        // ── 底部导航栏背景色（跟随主题） ──────────────────────────────
-        val navBgColor = Color.parseColor(if (isDark) "#0d0d11" else "#f6f4fa")
-        bottomNav.setBackgroundColor(navBgColor)
+        // ── 底部导航栏背景：平滑过渡 ──────────────────────────────────
+        val fromNavBg = (bottomNav.background as? android.graphics.drawable.ColorDrawable)
+            ?.color ?: targetSidebarBg
+        ValueAnimator.ofObject(ArgbEvaluator(), fromNavBg, targetSidebarBg).apply {
+            duration = 250
+            addUpdateListener { bottomNav.setBackgroundColor(it.animatedValue as Int) }
+            start()
+        }
 
-        // ── 底部导航栏图标与文字颜色 ──────────────────────────────────
-        val unselectedColor = Color.parseColor(if (isDark) "#9292A8" else "#64748b")
+        // ── 底部导航栏图标与文字颜色（选中色保持 accent，未选中色跟随主题）
         val iconColors = android.content.res.ColorStateList(
             arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(currentAccentColor, unselectedColor)
+            intArrayOf(currentAccentColor, targetUnselected)
         )
         bottomNav.itemIconTintList = iconColors
         bottomNav.itemTextColor   = iconColors
@@ -878,7 +911,8 @@ class MainActivity : AppCompatActivity() {
 
         // lifecycleScope 绑定 Activity 生命周期，Activity 销毁时自动取消
         lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            // getOrNull() 返回 Pair<String,String>? 可空类型，先赋值再按需访问
+            val result: Pair<String, String>? = withContext(Dispatchers.IO) {
                 runCatching {
                     val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                         if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
@@ -908,15 +942,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }.getOrNull() // 网络异常时 getOrNull() 返回 null，走降级分支
             }
-            val finalUrl = result?.first
-            val useToken = result?.second ?: ""
 
             // 回到主线程更新 UI / 提交 DownloadManager（已在 lifecycleScope 的主线程上下文）
-            if (finalUrl == null) {
+            if (result == null) {
                 // 非预期状态码：降级用原始 URL 直接提交，DownloadManager 自行处理
                 enqueueDownload(url, fileName, token)
             } else {
-                enqueueDownload(finalUrl, fileName, useToken)
+                enqueueDownload(result.first, fileName, result.second)
             }
         }
     }

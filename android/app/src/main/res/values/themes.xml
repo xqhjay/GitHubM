@@ -7,8 +7,8 @@
     -->
     <style name="Theme.GitHubManager" parent="Theme.Material3.Light.NoActionBar">
         <!--
-          冷启动窗口背景：与浅色模式背景色一致，避免白屏闪烁。
-          MainActivity 在 onCreate 中根据系统主题动态切换。
+          冷启动窗口背景：与浅色模式启动画面背景色一致，避免白屏闪烁。
+          使用颜色资源（@color/splash_bg_solid），values-night 自动切换。
         -->
         <item name="android:windowBackground">@color/splash_bg_solid</item>
         <!-- API 28+ 刘海屏延伸；低版本自动忽略 -->

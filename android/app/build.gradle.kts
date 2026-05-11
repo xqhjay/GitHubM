@@ -95,12 +95,12 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     // activity-ktx：registerForActivityResult / OnBackPressedDispatcher / EdgeToEdge / lifecycleScope
     implementation("androidx.activity:activity-ktx:1.9.3")
+    // lifecycle-runtime-ktx：显式声明 lifecycleScope / repeatOnLifecycle，避免依赖传递版本不一致
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     // Material3 组件：BottomNavigationView（material 1.12.0 默认使用 Material3 属性体系）
     implementation("com.google.android.material:material:1.12.0")
     // Kotlin Coroutines Android：lifecycleScope / Dispatchers.IO / Dispatchers.Main
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    // Lifecycle KTX：lifecycleScope 等协程扩展（activity-ktx 不自动传递此依赖）
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     // ── 单元测试依赖（仅参与 test 源集，不打包进 APK）──────────────
     // JUnit 4：标准 Android 单元测试运行器
