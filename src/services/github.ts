@@ -75,6 +75,24 @@ export function clearApiCache(): void {
   apiCache.clear();
 }
 
+// ── In-flight 请求合并层 ────────────────────────────────────────────
+// 当多个组件同时调用同一 GET 接口（如仓库列表同时被侧边栏和主页面请求）时，
+// 只有第一个请求会真正发出，后续相同 URL + token 的请求直接共享同一个 Promise。
+// 请求完成（成功或失败）后，该 Promise 从 inFlightMap 中移除。
+const inFlightMap = new Map<string, Promise<unknown>>();
+
+/**
+ * 从 in-flight Map 中获取已有的进行中请求，若不存在则创建并注册新 Promise。
+ * 泛型 T 由调用方（request / requestWithPagination）保证类型安全。
+ */
+export function getOrCreateInFlight<T>(key: string, factory: () => Promise<T>): Promise<T> {
+  const existing = inFlightMap.get(key);
+  if (existing) return existing as Promise<T>;
+  const promise = factory().finally(() => inFlightMap.delete(key));
+  inFlightMap.set(key, promise as Promise<unknown>);
+  return promise;
+}
+
 export function setToken(token: string | null) {
   // token 变更（退出登录）时清空所有缓存，防止旧用户数据泄露
   if (token !== authToken) clearApiCache();
@@ -105,48 +123,54 @@ async function request<T>(
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const method = (options.method ?? 'GET').toUpperCase();
 
-  // GET 请求：命中缓存直接返回，跳过网络请求
   if (method === 'GET') {
     const cacheKey = buildCacheKey(url);
+
+    // 1. TTL 缓存命中：直接返回，不发网络请求
     const cached = getCached<T>(cacheKey);
     if (cached !== null) return cached;
+
+    // 2. In-flight 合并：若相同请求正在进行中，共享同一 Promise
+    return getOrCreateInFlight<T>(cacheKey, async () => {
+      const response = await fetch(url, {
+        ...options,
+        headers: { ...buildHeaders(), ...options.headers },
+      });
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorBody = await response.json() as { message?: string };
+          errorMessage = errorBody.message || errorMessage;
+        } catch { /* 忽略 JSON 解析错误 */ }
+        const error = new Error(errorMessage) as Error & { status: number };
+        error.status = response.status;
+        throw error;
+      }
+      if (response.status === 204) return undefined as T;
+      const data = await response.json() as T;
+      setCached(cacheKey, data);
+      return data;
+    });
   }
 
+  // 非 GET 请求：直接发出，完成后失效相关缓存前缀
   const response = await fetch(url, {
     ...options,
-    headers: {
-      ...buildHeaders(),
-      ...options.headers,
-    },
+    headers: { ...buildHeaders(), ...options.headers },
   });
-
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     try {
       const errorBody = await response.json() as { message?: string };
       errorMessage = errorBody.message || errorMessage;
-    } catch {
-      // 忽略 JSON 解析错误
-    }
+    } catch { /* 忽略 JSON 解析错误 */ }
     const error = new Error(errorMessage) as Error & { status: number };
     error.status = response.status;
     throw error;
   }
-
-  // 204 No Content
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
+  if (response.status === 204) return undefined as T;
   const data = await response.json() as T;
-
-  // GET 响应写入缓存；写操作自动失效相关前缀
-  if (method === 'GET') {
-    setCached(buildCacheKey(url), data);
-  } else {
-    invalidateCache(url.split('?')[0]);
-  }
-
+  invalidateCache(url.split('?')[0]);
   return data;
 }
 
@@ -171,48 +195,57 @@ async function requestWithPagination<T>(
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const method = (options.method ?? 'GET').toUpperCase();
 
-  // GET 分页请求同样命中缓存
   if (method === 'GET') {
     const cacheKey = buildCacheKey(url);
-    const cached = getCached<{ data: T[]; hasNextPage: boolean }>( cacheKey);
+
+    // 1. TTL 缓存命中
+    const cached = getCached<{ data: T[]; hasNextPage: boolean }>(cacheKey);
     if (cached !== null) return cached;
+
+    // 2. In-flight 合并
+    return getOrCreateInFlight<{ data: T[]; hasNextPage: boolean }>(cacheKey, async () => {
+      const response = await fetch(url, {
+        ...options,
+        headers: { ...buildHeaders(), ...options.headers },
+      });
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorBody = await response.json() as { message?: string };
+          errorMessage = errorBody.message || errorMessage;
+        } catch { /* 忽略 */ }
+        const error = new Error(errorMessage) as Error & { status: number };
+        error.status = response.status;
+        throw error;
+      }
+      const data = await response.json() as T[];
+      const linkHeader = response.headers.get('Link');
+      const links = linkHeader ? parseLinkHeader(linkHeader) : {};
+      const result = { data, hasNextPage: !!links.next };
+      setCached(cacheKey, result);
+      return result;
+    });
   }
 
+  // 非 GET 分页请求（极少见，直接发出）
   const response = await fetch(url, {
     ...options,
-    headers: {
-      ...buildHeaders(),
-      ...options.headers,
-    },
+    headers: { ...buildHeaders(), ...options.headers },
   });
-
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     try {
       const errorBody = await response.json() as { message?: string };
       errorMessage = errorBody.message || errorMessage;
-    } catch {
-      // 忽略 JSON 解析错误
-    }
+    } catch { /* 忽略 */ }
     const error = new Error(errorMessage) as Error & { status: number };
     error.status = response.status;
     throw error;
   }
-
   const data = await response.json() as T[];
   const linkHeader = response.headers.get('Link');
   const links = linkHeader ? parseLinkHeader(linkHeader) : {};
-
-  const result = {
-    data,
-    hasNextPage: !!links.next,
-  };
-
-  if (method === 'GET') {
-    setCached(buildCacheKey(url), result);
-  }
-
-  return result;
+  return { data, hasNextPage: !!links.next };
 }
 
 // ===== 用户 API =====

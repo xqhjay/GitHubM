@@ -44,6 +44,9 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -851,50 +854,68 @@ class MainActivity : AppCompatActivity() {
      *   3. 若收到 200（无重定向）：直接下载，携带 auth
      *   4. 若发生异常：回退到原始 URL + auth（降级处理）
      */
+    /**
+     * 解析 GitHub 下载链接重定向，并通过 DownloadManager 入队。
+     *
+     * 原实现使用裸 Thread { }.start()，无线程池管控：
+     *   - 并发下载时每次触发均创建新线程，线程数无上界
+     *   - Activity 销毁后线程仍存活，可能泄漏 Activity 引用（通过 this 捕获）
+     *
+     * 新实现使用 lifecycleScope + Dispatchers.IO：
+     *   - IO Dispatcher 底层是共享线程池（默认 64 线程上限），无限制创建线程问题
+     *   - lifecycleScope 绑定 Activity 生命周期，onDestroy 时自动取消所有挂起协程
+     *   - 无需 runOnUiThread：withContext(Dispatchers.Main) 回到主线程，语义更清晰
+     *
+     * 重定向解析逻辑（不变）：
+     *   1. IO 线程：HttpURLConnection（禁止自动重定向）→ 取状态码 + Location
+     *   2. 3xx → Location（预签名 URL，不携带 Authorization）
+     *   3. 200 → 原始 URL（携带 Authorization）
+     *   4. 其他 / 异常 → 降级直接用原始 URL 提交 DownloadManager
+     */
     private fun resolveAndDownload(url: String, fileName: String, token: String) {
         Toast.makeText(this, "准备下载：$fileName", Toast.LENGTH_SHORT).show()
 
-        Thread {
-            runCatching {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
-                    setRequestProperty("User-Agent", "GitHub Manager Android")
-                    // ⚠️ 不设置 Accept 头：
-                    //   GitHub API 端点（api.github.com）仅接受 application/vnd.github+json，
-                    //   发送 application/octet-stream 会触发 415 Unsupported Media Type。
-                    //   此步骤只需要拿到 Location 头完成重定向解析，无需指定内容类型。
-                    instanceFollowRedirects = false   // 手动处理重定向，避免 auth 头泄露给 S3
-                    requestMethod = "GET"
-                    connectTimeout = 15_000
-                    readTimeout = 5_000
-                }
-                conn.connect()
-                val code = conn.responseCode
-                val location = conn.getHeaderField("Location")
-                conn.disconnect()
+        // lifecycleScope 绑定 Activity 生命周期，Activity 销毁时自动取消
+        lifecycleScope.launch {
+            val (finalUrl, useToken) = withContext(Dispatchers.IO) {
+                runCatching {
+                    val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                        if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
+                        setRequestProperty("User-Agent", "GitHub Manager Android")
+                        // ⚠️ 不设置 Accept 头：
+                        //   GitHub API 端点（api.github.com）仅接受 application/vnd.github+json，
+                        //   发送 application/octet-stream 会触发 415 Unsupported Media Type。
+                        //   此步骤只需要拿到 Location 头完成重定向解析，无需指定内容类型。
+                        instanceFollowRedirects = false // 手动处理重定向，避免 auth 头泄露给 S3
+                        requestMethod = "GET"
+                        connectTimeout = 15_000
+                        readTimeout = 5_000
+                    }
+                    conn.connect()
+                    val code = conn.responseCode
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
 
-                when {
-                    code in 300..399 && !location.isNullOrBlank() -> {
-                        // GitHub → 重定向到预签名 URL，不携带 auth（预签名 URL 已含鉴权参数）
-                        runOnUiThread { enqueueDownload(location, fileName, token = "") }
+                    when {
+                        code in 300..399 && !location.isNullOrBlank() ->
+                            // GitHub → 重定向到预签名 URL，不携带 auth（预签名 URL 已含鉴权参数）
+                            Pair(location, "")
+                        code == 200 ->
+                            // 直链，无重定向，携带 auth
+                            Pair(url, token)
+                        else -> null // 非预期状态码，通知用户
                     }
-                    code == 200 -> {
-                        // 直链，无重定向，携带 auth
-                        runOnUiThread { enqueueDownload(url, fileName, token) }
-                    }
-                    else -> {
-                        runOnUiThread {
-                            Toast.makeText(
-                                this, "下载准备失败（HTTP $code）", Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
-                }
-            }.onFailure {
-                // 网络异常等：直接尝试（DownloadManager 自行处理）
-                runOnUiThread { enqueueDownload(url, fileName, token) }
+                }.getOrNull() // 网络异常时 getOrNull() 返回 null，走降级分支
             }
-        }.start()
+
+            // 回到主线程更新 UI / 提交 DownloadManager（已在 lifecycleScope 的主线程上下文）
+            if (finalUrl == null) {
+                // 非预期状态码：降级用原始 URL 直接提交，DownloadManager 自行处理
+                enqueueDownload(url, fileName, token)
+            } else {
+                enqueueDownload(finalUrl, fileName, useToken ?: "")
+            }
+        }
     }
 
     /** 将最终 URL 提交给 DownloadManager，token 为空时不发送 Authorization header */

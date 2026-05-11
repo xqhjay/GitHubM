@@ -93,10 +93,12 @@ dependencies {
     // core-ktx 1.13.1：最新稳定版，WindowInsetsCompat / ViewCompat 完整支持
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
-    // activity-ktx：registerForActivityResult / OnBackPressedDispatcher / EdgeToEdge
+    // activity-ktx：registerForActivityResult / OnBackPressedDispatcher / EdgeToEdge / lifecycleScope
     implementation("androidx.activity:activity-ktx:1.9.3")
     // Material3 组件：BottomNavigationView（material 1.12.0 默认使用 Material3 属性体系）
     implementation("com.google.android.material:material:1.12.0")
+    // Kotlin Coroutines Android：lifecycleScope / Dispatchers.IO / Dispatchers.Main
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // ── 单元测试依赖（仅参与 test 源集，不打包进 APK）──────────────
     // JUnit 4：标准 Android 单元测试运行器
