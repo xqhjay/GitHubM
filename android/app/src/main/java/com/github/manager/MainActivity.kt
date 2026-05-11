@@ -55,6 +55,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var splashOverlay: View
     private lateinit var bottomNav: BottomNavigationView
+    private lateinit var bottomNavContainer: android.widget.LinearLayout
+    private lateinit var navDivider: View
     private lateinit var navBarSpacer: View
     private lateinit var statusBarSpacer: View
     private var splashDismissed = false
@@ -478,6 +480,8 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         splashOverlay = findViewById(R.id.splashOverlay)
         bottomNav = findViewById(R.id.bottomNav)
+        bottomNavContainer = findViewById(R.id.bottomNavContainer)
+        navDivider = findViewById(R.id.navDivider)
         navBarSpacer = findViewById(R.id.navBarSpacer)
         statusBarSpacer = findViewById(R.id.statusBarSpacer)
 
@@ -795,9 +799,14 @@ class MainActivity : AppCompatActivity() {
         darkTheme = isDark
 
         // ── 目标颜色（读颜色资源，与 colors.xml 保持单一来源）─────────
-        val targetMainBg    = getColor(R.color.main_bg)
-        val targetSidebarBg = getColor(R.color.sidebar_bg)
+        val targetMainBg     = getColor(R.color.main_bg)
+        val targetSidebarBg  = getColor(R.color.sidebar_bg)
+        val targetDivider    = getColor(R.color.bottom_nav_divider)
         val targetUnselected = getColor(R.color.nav_unselected)
+
+        // ── 辅助：从 View 当前 ColorDrawable 中提取颜色，缺省 fallback ─
+        fun View.currentBgColor(fallback: Int): Int =
+            (background as? android.graphics.drawable.ColorDrawable)?.color ?: fallback
 
         // ── WebView 背景：平滑过渡，消除主题切换时的白/黑闪烁 ─────────
         val fromWebBg = webView.solidColor.takeIf { it != 0 } ?: targetMainBg
@@ -807,14 +816,41 @@ class MainActivity : AppCompatActivity() {
             start()
         }
 
+        // ── 状态栏占位区域背景：与 WebView 背景保持一致，同步切换 ────────
+        val fromStatusBg = statusBarSpacer.currentBgColor(targetMainBg)
+        ValueAnimator.ofObject(ArgbEvaluator(), fromStatusBg, targetMainBg).apply {
+            duration = 250
+            addUpdateListener { statusBarSpacer.setBackgroundColor(it.animatedValue as Int) }
+            start()
+        }
+
         // ── 系统栏图标颜色（浅色图标=深色主题，深色图标=浅色主题）──────
         val insetsController = WindowInsetsControllerCompat(window, window.decorView)
         insetsController.isAppearanceLightStatusBars     = !isDark
         insetsController.isAppearanceLightNavigationBars = !isDark
 
-        // ── 底部导航栏背景：平滑过渡 ──────────────────────────────────
-        val fromNavBg = (bottomNav.background as? android.graphics.drawable.ColorDrawable)
-            ?.color ?: targetSidebarBg
+        // ── 底部导航容器（含分割线）背景：平滑过渡 ────────────────────
+        val fromContainerBg = bottomNavContainer.currentBgColor(targetSidebarBg)
+        ValueAnimator.ofObject(ArgbEvaluator(), fromContainerBg, targetSidebarBg).apply {
+            duration = 250
+            addUpdateListener {
+                val c = it.animatedValue as Int
+                bottomNavContainer.setBackgroundColor(c)
+                navBarSpacer.setBackgroundColor(c)
+            }
+            start()
+        }
+
+        // ── 分割线颜色：平滑过渡 ──────────────────────────────────────
+        val fromDivider = navDivider.currentBgColor(targetDivider)
+        ValueAnimator.ofObject(ArgbEvaluator(), fromDivider, targetDivider).apply {
+            duration = 250
+            addUpdateListener { navDivider.setBackgroundColor(it.animatedValue as Int) }
+            start()
+        }
+
+        // ── 底部导航栏背景（BottomNavigationView 本体，透明）────────────
+        val fromNavBg = bottomNav.currentBgColor(targetSidebarBg)
         ValueAnimator.ofObject(ArgbEvaluator(), fromNavBg, targetSidebarBg).apply {
             duration = 250
             addUpdateListener { bottomNav.setBackgroundColor(it.animatedValue as Int) }
