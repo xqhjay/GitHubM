@@ -460,7 +460,34 @@ export default function AiAssistantPage() {
           }
           case 'think_chunk': {
             currentThinking += chunk.content;
-            if (thinkingBubbleId) {
+            // 检测段落断点（\n\n）：将断点前内容收尾到当前气泡，断点后内容放入新气泡
+            const breakIdx = currentThinking.indexOf('\n\n');
+            if (breakIdx !== -1 && thinkingBubbleId) {
+              const before = currentThinking.slice(0, breakIdx).trim();
+              const after = currentThinking.slice(breakIdx + 2).trimStart();
+              // 收尾当前气泡
+              const oldTid = thinkingBubbleId;
+              if (before) {
+                setMessages(prev => prev.map(m => m.id === oldTid
+                  ? { ...m, thinkingContent: before, thinkingDone: true, streaming: false }
+                  : m
+                ));
+              } else {
+                // 段落为空时直接移除占位气泡
+                setMessages(prev => prev.filter(m => m.id !== oldTid));
+              }
+              // 新建下一段落气泡
+              const newTbId = `think-${Date.now()}`;
+              thinkingBubbleId = newTbId;
+              const newThinkMsg: Message = {
+                id: newTbId, role: 'assistant', content: '',
+                streaming: true, bubbleType: 'thinking',
+                thinkingContent: after, thinkingDone: false,
+              };
+              setMessages(prev => [...prev, newThinkMsg]);
+              currentThinking = after;
+            } else if (thinkingBubbleId) {
+              // 无断点，正常追加
               const tid = thinkingBubbleId;
               setMessages(prev => prev.map(m => m.id === tid ? { ...m, thinkingContent: currentThinking } : m));
             }
@@ -1778,48 +1805,78 @@ function StepBubble({ msg, onUploadFile }: StepBubbleProps) {
 
 // ── ThinkingBubble：AI 思考过程独立气泡 ──────────────────────────────────────
 function ThinkingBubble({ msg }: { msg: Message }) {
-  const [expanded, setExpanded] = useState(true);
   const content = msg.thinkingContent ?? '';
   const done = msg.thinkingDone ?? false;
 
-  // 完成后自动折叠
+  // 思考中默认展开；完成后自动折叠（留 600ms 让用户感知完成）
+  const [expanded, setExpanded] = useState(!done);
+  const prevDoneRef = useRef(done);
+
   useEffect(() => {
-    if (done) {
-      const t = setTimeout(() => setExpanded(false), 800);
+    if (!prevDoneRef.current && done) {
+      prevDoneRef.current = true;
+      const t = setTimeout(() => setExpanded(false), 600);
       return () => clearTimeout(t);
     }
   }, [done]);
 
+  // 折叠时展示内容摘要（最多 36 字）
+  const preview = content.replace(/\s+/g, ' ').trim().slice(0, 36);
+
   return (
-    <div className="flex gap-2.5 flex-row pl-2">
-      {/* 左侧竖线装饰 */}
+    <div className="flex gap-2 flex-row pl-2">
+      {/* 左侧时间轴竖线 */}
       <div className="flex flex-col items-center shrink-0">
-        <div className="w-1 self-stretch rounded-full bg-border/40 mx-2.5" />
+        <div className={cn(
+          'w-px self-stretch mx-3 rounded-full transition-colors duration-500',
+          done ? 'bg-border/30' : 'bg-primary/30'
+        )} />
       </div>
 
-      <div className="flex-1 min-w-0 max-w-[92%]">
+      <div className="flex-1 min-w-0 max-w-[92%] py-0.5">
+        {/* 折叠头部 */}
         <button
           onClick={() => setExpanded(v => !v)}
-          className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors py-1 w-full text-left"
+          className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors py-0.5 w-full text-left group"
         >
           {done
-            ? <CheckCircle2 className="w-3 h-3 text-primary/60 shrink-0" />
+            ? <CheckCircle2 className="w-3 h-3 text-primary/50 shrink-0" />
             : <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />}
-          <span className="font-medium tracking-wide">
-            {done ? '已完成思考' : '正在思考…'}
+
+          <span className={cn(
+            'font-medium tracking-wide shrink-0',
+            done ? 'text-muted-foreground/70' : 'text-muted-foreground'
+          )}>
+            {done ? '思考完成' : '思考中…'}
           </span>
+
+          {/* 折叠时展示预览文本 */}
+          {!expanded && preview && (
+            <span className="text-muted-foreground/40 truncate flex-1 italic hidden sm:block">
+              {preview}{content.length > 36 ? '…' : ''}
+            </span>
+          )}
+
           {content && (
-            expanded
-              ? <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
-              : <ChevronRight className="w-3 h-3 ml-auto shrink-0" />
+            <span className="ml-auto shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors">
+              {expanded
+                ? <ChevronDown className="w-3 h-3" />
+                : <ChevronRight className="w-3 h-3" />}
+            </span>
           )}
         </button>
 
+        {/* 展开的思考内容 */}
         {expanded && content && (
-          <div className="mt-1 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 max-h-[180px] overflow-y-auto scrollbar-thin">
+          <div className={cn(
+            'mt-1 rounded-lg border px-3 py-2.5 max-h-[200px] overflow-y-auto scrollbar-thin',
+            done
+              ? 'bg-muted/10 border-border/30'
+              : 'bg-primary/5 border-primary/15 animate-pulse-subtle'
+          )}>
             <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap italic break-words">
               {content}
-              {!done && <span className="inline-block w-1 h-3 ml-1 bg-primary/50 animate-pulse align-middle" />}
+              {!done && <span className="inline-block w-1 h-3 ml-1 bg-primary/50 animate-pulse align-middle rounded-sm" />}
             </p>
           </div>
         )}
