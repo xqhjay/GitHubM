@@ -742,6 +742,29 @@ ${branchNote}
   5. patch_file / write_file 修复问题
   6. rerun_workflow_run 重新触发，再次 get_workflow_runs 确认是否通过
   7. 如果依然失败，重复步骤 3-6 直到修复成功
+  8. **所有自动修复尝试耗尽后仍失败时，必须输出如下格式的修复清单**，帮助用户手动处理：
+
+  ---
+  ## 🔧 修复清单（手动操作）
+
+  > 自动修复未能解决全部问题，以下是根据日志分析整理的可操作步骤：
+
+  ### ❌ 问题 1：[简短问题标题]
+  - **原因**：[具体错误原因，引用日志关键行]
+  - **文件**：`path/to/file.ts`（第 N 行）
+  - [ ] [可执行操作 1，动词开头，如"将 xxx 修改为 yyy"]
+  - [ ] [可执行操作 2]
+
+  ### ❌ 问题 2：[简短问题标题]
+  - **原因**：[...]
+  - [ ] [...]
+
+  ### ⚠️ 注意事项
+  - [需要手动配置的 Secret 名称及作用]
+  - [其他无法自动处理的前置条件]
+
+  **修复完成后**，回复"重新构建"即可让我自动触发 CI 并验证结果。
+  ---
 
 🔧 **修改工作流文件**：
   1. list_workflows 找到 workflow_id 及路径
@@ -1621,7 +1644,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
             await dbFinishWorkflow(sb, workflowDbId);
           }
           currentStepId = null;
-          await streamAnswer("⚠️ 步骤执行失败（已重试 2 次），终止任务。", sendChunk);
+          // 注入指令：让 LLM 根据已有错误上下文生成修复清单，而非输出硬编码终止消息
+          fullMessages.push({
+            role: "user",
+            content: [
+              "⚠️ 系统提示：上述步骤已连续失败并重试 2 次，无法自动完成修复。",
+              "请根据以上日志和错误信息，按照「修复清单」格式（步骤 8）输出一份完整的可执行 Markdown 清单，",
+              "帮助用户手动处理每个问题。不要再调用工具，直接输出清单即可。",
+            ].join("")
+          });
+          // 再发起一次 LLM 调用，让 AI 生成有上下文的修复清单
+          try {
+            const repairResp = await callLLM(modelConfig, platformKey, fullMessages);
+            await streamAnswer(repairResp, sendChunk, 10, () => abortSig.aborted);
+          } catch (_e) {
+            await streamAnswer("⚠️ 步骤执行失败（已重试 2 次），自动修复终止。请检查上方日志并手动修复。", sendChunk);
+          }
           batchDone = true;
           break;
         }
