@@ -597,9 +597,13 @@ export default function SettingsPage() {
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-sm font-semibold text-foreground mb-4">作者</h2>
         <div className="flex items-center gap-3">
-          {/* 头像（预留 SVG 内联位置） */}
-          <div className="w-10 h-10 rounded-full bg-muted border border-border flex items-center justify-center shrink-0 overflow-hidden">
-            <span className="text-lg select-none">🦖</span>
+          {/* 头像 */}
+          <div className="w-10 h-10 rounded-full border border-border shrink-0 overflow-hidden">
+            <img
+              src="https://miaoda-conversation-file.cdn.bcebos.com/user-a7uyohzdep6o/app-bgc5z86utjwh/20260513/头像.png"
+              alt="作者头像"
+              className="w-full h-full object-cover"
+            />
           </div>
           <div className="flex-1 min-w-0 space-y-0.5">
             <p className="text-sm text-foreground truncate">作者：MT 论坛练习时长两年半的水怪</p>
