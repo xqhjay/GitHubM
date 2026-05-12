@@ -990,6 +990,69 @@ async function submitPRReview(
   } catch (e) { return diagnose4xx(e, `submit_pr_review(#${pullNumber})`); }
 }
 
+// ── Release 自动化辅助工具 ───────────────────────────────────────────────────
+
+/**
+ * 获取最新 Release 的 tag、名称、发布时间。
+ * 供 Release 自动化工作流第一步调用，用于确定版本基线和时间范围。
+ */
+async function getLatestRelease(ctx: GithubContext): Promise<string> {
+  try {
+    const data = await githubRequest(
+      ctx,
+      `/repos/${ctx.owner}/${ctx.repo}/releases/latest`,
+    );
+    return JSON.stringify({
+      tag_name: data.tag_name,
+      name: data.name,
+      published_at: data.published_at,
+      html_url: data.html_url,
+      body: (data.body as string)?.slice(0, 500) || "",
+    });
+  } catch (e) {
+    if (e instanceof GithubApiError && e.status === 404) {
+      return JSON.stringify({ tag_name: null, published_at: null, note: "该仓库还没有任何 Release，版本号将从 v0.1.0 开始" });
+    }
+    return diagnose4xx(e, "get_latest_release");
+  }
+}
+
+/**
+ * 获取自指定时间点（ISO 日期字符串）之后已合并的所有 PR（最多 50 个）。
+ * 返回结构化 JSON 数组，每项含 number/title/body/labels/merged_at/user。
+ * 供 Release 自动化工作流第二步调用，用于生成 changelog。
+ */
+async function getMergedPRsSince(ctx: GithubContext, since: string): Promise<string> {
+  try {
+    // 获取已关闭的 PR，按更新时间倒序（已合并的 merged_at 不为 null）
+    const pulls = await githubRequest(
+      ctx,
+      `/repos/${ctx.owner}/${ctx.repo}/pulls?state=closed&sort=updated&direction=desc&per_page=50`,
+    ) as Array<Record<string, unknown>>;
+
+    const sinceDate = since ? new Date(since) : new Date(0);
+    const merged = pulls.filter((pr) => {
+      if (!pr.merged_at) return false;                         // 未合并的（只是关闭）跳过
+      return new Date(pr.merged_at as string) > sinceDate;
+    });
+
+    if (!merged.length) {
+      return JSON.stringify({ prs: [], note: `自 ${since || "仓库创建"} 以来没有已合并的 PR` });
+    }
+
+    const result = merged.map((pr) => ({
+      number: pr.number,
+      title: pr.title,
+      body: (pr.body as string)?.slice(0, 300) || "",
+      labels: ((pr.labels as Array<{name: string}>) || []).map((l) => l.name),
+      merged_at: pr.merged_at,
+      user: (pr.user as {login: string})?.login || "unknown",
+    }));
+
+    return JSON.stringify({ prs: result, total: result.length });
+  } catch (e) { return diagnose4xx(e, "get_merged_prs_since"); }
+}
+
 // ── Agent 核心 ───────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(targetBranch?: string): string {
@@ -1081,6 +1144,11 @@ ${branchNote}
 36. 创建新 Release（tag + 标题 + 发布说明）：
     {"tool":"create_release","tag_name":"v1.2.0","name":"v1.2.0 - 新增 XX 功能","body":"## 更新内容\n- 修复 xxx\n- 新增 yyy","draft":"false","prerelease":"false","branch":"main"}
 
+🚀 **Release 自动化**
+37. 获取最新 Release 信息（tag、名称、发布时间）：{"tool":"get_latest_release"}
+38. 获取指定时间点之后已合并的 PR 列表（含 labels、body、作者）：
+    {"tool":"get_merged_prs_since","since":"2024-01-15T10:30:00Z"}
+
 ==============================
 全流程开发标准工作流
 ==============================
@@ -1152,6 +1220,57 @@ ${branchNote}
   2. 调用 request_file 工具，说明需要的文件名和用途
   3. 等待用户在聊天框上传后，用 write_file 写入到正确路径
 
+🏷️ **Release 自动化工作流（自动生成 changelog 并发版）**：
+  当用户说"帮我发版"、"合并 PR 后创建 Release"、"生成 changelog 并发布"等，**必须**按此完整流程执行：
+
+  **步骤 1 — 获取版本基线**
+  {"tool":"get_latest_release"}
+  - 若返回 tag_name 为 null → 说明没有历史 Release，版本号从 **v0.1.0** 开始，since 设为空字符串 ""
+  - 若有历史 Release → 记录 tag_name 和 published_at
+
+  **步骤 2 — 获取自上次发版以来已合并的 PR**
+  {"tool":"get_merged_prs_since","since":"<上一步的 published_at，无则为空字符串>"}
+  - 返回 JSON 数组，每项含：number、title、body、labels、merged_at、user
+
+  **步骤 3 — 推断下一个版本号（semver 规则）**
+  按以下优先级判断（从高到低，匹配到即停）：
+  - 任意 PR 的 labels 含 `breaking` 或 `major` → **主版本 +1**，次版本和修订版归零
+  - 任意 PR 的 labels 含 `feature`/`feat`/`enhancement`，或标题以 `feat:` 开头 → **次版本 +1**，修订版归零
+  - 其余情况（fix/chore/docs/ci/refactor/test 等）→ **修订版 +1**
+  - 无上一个 Release → 固定使用 **v0.1.0**，不再推断
+
+  **步骤 4 — 生成结构化 changelog**
+  将 PR 按类型分组，生成如下 Markdown 格式（保留该格式，不自行发挥）：
+
+  \`\`\`markdown
+  ## What's Changed
+
+  ### 🚀 新功能
+  - feat: <PR标题> (#<编号> by @<用户名>)
+
+  ### 🐛 Bug 修复
+  - fix: <PR标题> (#<编号> by @<用户名>)
+
+  ### 🔧 其他改动
+  - chore/docs/ci/refactor: <PR标题> (#<编号>)
+
+  **Full Changelog**: https://github.com/<owner>/<repo>/compare/<上一个tag>...<新tag>
+  \`\`\`
+
+  分类规则：
+  - labels 含 feature/feat/enhancement 或标题以 feat: 开头 → 🚀 新功能
+  - labels 含 bug/fix 或标题以 fix: 开头 → 🐛 Bug 修复
+  - 其余（chore/docs/ci/refactor/test 等）→ 🔧 其他改动
+  - 若某类别为空，省略该区块
+
+  **步骤 5 — 创建 Release**
+  {"tool":"create_release","tag_name":"v<新版本号>","name":"v<新版本号>","body":"<步骤4生成的changelog>","draft":"false","prerelease":"false"}
+
+  ⚠️ **注意事项**：
+  - 若 get_merged_prs_since 返回 prs 为空数组，主动告知用户"自上次发版以来暂无已合并 PR"，询问是否仍要继续发版（此时 changelog 正文可写"暂无变更"）
+  - tag_name 必须以 `v` 开头，格式 vX.Y.Z
+  - 不要在 create_release 前询问用户确认，直接执行
+
 ==============================
 超长文件处理策略
 ==============================
@@ -1167,6 +1286,7 @@ ${branchNote}
 - patch_file 比 write_file 更安全，修改工作流文件时优先使用 patch
 - 修改前必须先用 grep_in_file 或 read_file 确认精确的行号
 - **trigger_workflow 已内置自动修复**：若缺少 workflow_dispatch，系统会自动添加并重试，无需手动干预
+- **Release 自动化**：收到发版/生成changelog指令时，必须按「Release 自动化工作流」五步完整执行，不得跳步或提前结束
 - commit message 使用中文，遵循 Conventional Commits（fix/feat/ci/chore/docs）
 - 对话语言：中文；操作完成后给出简洁总结
 
@@ -1494,6 +1614,9 @@ function executeTool(
     case "create_release":       return createRelease(ctx, call.tag_name, call.name, call.body, call.draft === "true", call.prerelease === "true", call.branch || targetBranch);
     case "list_releases":        return listReleases(ctx, parseInt(call.limit || "10", 10));
     case "submit_pr_review":     return submitPRReview(ctx, call.pull_number, call.event, call.body);
+    // Release 自动化辅助工具
+    case "get_latest_release":   return getLatestRelease(ctx);
+    case "get_merged_prs_since": return getMergedPRsSince(ctx, call.since || "");
     default: return `未知工具: ${call.tool}`;
   }
 }
@@ -1775,6 +1898,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       get_commit_diff: "查看提交变更", get_pr_files: "PR 文件变更",
       create_release: "创建 Release", list_releases: "列出 Release",
       submit_pr_review: "PR 代码审查",
+      get_latest_release: "获取最新 Release", get_merged_prs_since: "获取已合并 PR",
     };
     // 每批最多 20 轮工具调用；最多自动续跑 3 批，总上限 60 轮
     const MAX_ROUNDS_PER_BATCH = 20;
