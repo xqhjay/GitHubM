@@ -1,13 +1,14 @@
 // AI 助手共享工具函数 & 常量
-import React from 'react';
-import type { ModelConfig, ModelType } from './aiTypes';
+import React, { useState } from 'react';
+import type { ModelConfig, ModelType, SSEChunk } from './aiTypes';
 import {
   FolderOpen, BookOpen, Search, FileCode2, Pencil,
   GitBranch, GitCommit, GitMerge, CircleAlert,
   Play, ListChecks, BugPlay, LayoutDashboard,
   FolderSearch, ScanSearch, Files, GitPullRequest,
-  Cpu, Wrench,
+  Cpu, Wrench, Loader2, ChevronDown, ChevronRight, BrainCircuit,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // ── 模型类型（从 aiTypes 导入，在此仅重导出供外部使用）──────────────────────────────
 export type { ModelType };
@@ -127,14 +128,63 @@ export function saveModelConfig(cfg: ModelConfig): void {
   localStorage.setItem(MODEL_CONFIG_KEY, JSON.stringify(cfg));
 }
 
-export function parseChunk(data: string): string {
-  if (data === '[DONE]') return '';
+/**
+ * 解析增强版 SSE Typed Chunk。
+ * 支持旧版 { choices: [{ delta: { content } }] } 和新版 { type: '...', ... }。
+ */
+export function parseTypedChunk(data: string): SSEChunk | null {
+  if (data === '[DONE]') return null;
   try {
-    return (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> })
-      .choices?.[0]?.delta?.content ?? '';
-  } catch {
-    return '';
-  }
+    const parsed = JSON.parse(data);
+    // 1. 处理新版 Typed Chunk
+    if (parsed.type) return parsed as SSEChunk;
+    // 2. 处理旧版 OpenAI 格式
+    const content = parsed.choices?.[0]?.delta?.content;
+    if (typeof content === 'string') return { type: 'content', content };
+  } catch { /* ignore */ }
+  return null;
+}
+
+export function parseChunk(data: string): string {
+  const typed = parseTypedChunk(data);
+  return typed?.type === 'content' ? typed.content : '';
+}
+
+// ── UI 组件 ────────────────────────────────────────────────────────────────────
+
+/**
+ * 思考过程显示组件。
+ * 支持：实时流式显示（done=false 时显示 spinner）、手动折叠/展开、完成后默认折叠。
+ */
+export function ThinkingBlock({ content, done }: { content: string; done?: boolean }) {
+  const [expanded, setExpanded] = useState(!done); // 正在流式输出时默认展开
+
+  if (!content && !done) return null;
+
+  return (
+    <div className="my-2 overflow-hidden rounded-lg border border-border bg-muted/30">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-muted/50 transition-colors"
+      >
+        <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground select-none uppercase tracking-wider">
+          {done ? <BrainCircuit className="w-3 h-3 text-primary" /> : <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+          <span>{done ? '已完成思考' : '正在思考...'}</span>
+        </div>
+        {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3">
+          {/* 使用 max-height + 滚动，避免过长的思考过程占用过多垂直空间 */}
+          <div className="max-h-[200px] overflow-y-auto text-[11px] text-muted-foreground leading-relaxed italic whitespace-pre-wrap border-t border-border pt-2 scrollbar-thin">
+            {content}
+            {!done && <span className="inline-block w-1 h-3 ml-1 bg-primary/50 animate-pulse" />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Markdown 渲染 ────────────────────────────────────────────────────────────────
