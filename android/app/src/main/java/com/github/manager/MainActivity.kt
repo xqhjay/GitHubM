@@ -625,8 +625,9 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebViewSettings() {
-        // WebView 背景色直接读颜色资源，与 XML 声明保持单一来源
-        webView.setBackgroundColor(getColor(R.color.main_bg))
+        // WebView 背景色按 darkTheme 直接选取，避免 getColor 依赖系统 Configuration
+        val initBg = if (darkTheme) 0xFF111117.toInt() else 0xFFF8F8FB.toInt()
+        webView.setBackgroundColor(initBg)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -824,11 +825,14 @@ class MainActivity : AppCompatActivity() {
     private fun applyNativeTheme(isDark: Boolean) {
         darkTheme = isDark
 
-        // ── 目标颜色（读颜色资源，与 colors.xml 保持单一来源）─────────
-        val targetMainBg     = getColor(R.color.main_bg)
-        val targetSidebarBg  = getColor(R.color.sidebar_bg)
-        val targetDivider    = getColor(R.color.bottom_nav_divider)
-        val targetUnselected = getColor(R.color.nav_unselected)
+        // ── 目标颜色（直接按 isDark 选择，避免依赖 Android Configuration 的 day/night 资源。
+        //    当 Web 端主题与系统主题不同步时（如系统浅色但用户切到深色），
+        //    getColor(R.color.xxx) 会读取系统当前 Configuration 对应的资源而非 isDark 参数，
+        //    导致颜色始终为系统主题色而非 Web 主题色。硬编码颜色保证 100% 与 Web 端一致。）─────
+        val targetMainBg     = if (isDark) 0xFF111117.toInt() else 0xFFF8F8FB.toInt()
+        val targetSidebarBg  = if (isDark) 0xFF0D0D11.toInt() else 0xFFF6F4FA.toInt()
+        val targetDivider    = if (isDark) 0xFF21212B.toInt() else 0xFFE2DDF5.toInt()
+        val targetUnselected = if (isDark) 0xFF9292A8.toInt() else 0xFF64748B.toInt()
 
         // ── 辅助：从 View 当前 ColorDrawable 中提取颜色，缺省 fallback ─
         fun View.currentBgColor(fallback: Int): Int =

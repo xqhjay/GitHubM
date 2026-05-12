@@ -1,4 +1,4 @@
-// AI 助手页面 v4 - 组件拆分 + React.memo 优化
+// AI 助手页面 v5 - 文件浏览器插件 + 气泡宽度修复
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getRepoBranches } from '@/services/github';
@@ -11,7 +11,7 @@ import {
   Bot, User, Send, Square, Trash2, Settings,
   Sparkles, AlertCircle,
   RefreshCw, Plus, GitPullRequest, History, ArrowLeft, Loader2,
-  Zap,
+  Zap, FolderSearch, PanelRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -23,6 +23,7 @@ import CopyButton from '@/components/ai/CopyButton';
 import BranchPicker from '@/components/ai/BranchPicker';
 import CreateBranchDialog from '@/components/ai/CreateBranchDialog';
 import HistoryPanel from '@/components/ai/HistoryPanel';
+import FileBrowserPanel from '@/components/ai/FileBrowserPanel';
 // ── 共享工具层 ────────────────────────────────────────────────────────────────
 import {
   getModelDef, loadModelConfig, saveModelConfig,
@@ -46,6 +47,8 @@ export default function AiAssistantPage() {
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showCreateBranch, setShowCreateBranch] = useState(false);
+  // 文件浏览器侧边面板
+  const [showFileBrowser, setShowFileBrowser] = useState(false);
   // 当前会话 ID（用于持久化）
   const [sessionId, setSessionId] = useState<string | null>(null);
   // 待持久化消息队列（本轮对话新增的）
@@ -321,6 +324,7 @@ export default function AiAssistantPage() {
     setBranches([]);
     setSelectedBranch('');
     setSessionId(null);
+    setShowFileBrowser(false);
     pendingMsgsRef.current = [];
   };
 
@@ -412,6 +416,13 @@ export default function AiAssistantPage() {
 
   const lastAiIdx = [...messages].map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).pop() ?? -1;
 
+  // 文件浏览器插入文本（追加到输入框末尾）
+  const handleFileBrowserInsert = useCallback((text: string) => {
+    setInput(prev => prev ? `${prev}\n${text}` : text);
+    // 插入后聚焦输入框
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
+
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] md:h-[calc(100dvh-1rem)] overflow-hidden">
       {/* 顶部栏 */}
@@ -446,14 +457,26 @@ export default function AiAssistantPage() {
           </Button>
         </div>
 
-        {/* 右侧：流式状态 */}
-        <div className="flex items-center shrink-0">
+        {/* 右侧：流式状态 + 文件浏览器切换 */}
+        <div className="flex items-center gap-1 shrink-0">
           {isStreaming && (
             <Badge variant="secondary" className="text-xs animate-pulse">
               <span className="hidden sm:inline">思考中</span>
               <Loader2 className="w-3 h-3 animate-spin sm:hidden" />
             </Badge>
           )}
+          <button
+            onClick={() => setShowFileBrowser(v => !v)}
+            className={cn(
+              'p-1.5 rounded-md transition-colors',
+              showFileBrowser
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+            title={showFileBrowser ? '关闭文件浏览器' : '打开文件浏览器'}
+          >
+            <FolderSearch className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -470,198 +493,230 @@ export default function AiAssistantPage() {
         </div>
       )}
 
-      {/* 消息列表 */}
-      <div ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col"><ScrollArea className="flex-1 min-h-0 min-w-0">
-        <div className="flex flex-col gap-4 p-4 pb-2">
-          {messages.map((msg, idx) => {
-            const isLastAi = idx === lastAiIdx;
-            return (
-              <div key={msg.id} className={cn('flex gap-2.5', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                <div className={cn(
-                  'w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
-                )}>
-                  {msg.role === 'user'
-                    ? <User className="w-3.5 h-3.5" />
-                    : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
-                </div>
-                {/* overflow-x-hidden 只阻断横向溢出，不阻断纵向；气泡内 pre 的横向滚动条可正常工作 */}
-                <div className="flex flex-col gap-1 max-w-[85%] min-w-0 overflow-x-hidden">
-                  {/* 消息气泡：内容超过阈值后启用独立滚动，避免整个列表被撑开 */}
-                  {/* 气泡：overflow-x-auto 让宽代码块可横向滚动而非截断；
-                       长内容流式结束后加 max-h+overflow-y-auto 防止无限撑高列表 */}
-                  <div className={cn(
-                    'rounded-2xl px-4 py-3 text-sm min-w-0 max-w-full overflow-x-auto',
-                    msg.role === 'user'
-                      ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                      : 'bg-muted/60 border border-border text-foreground rounded-tl-sm',
-                    !msg.streaming && msg.content.length > 600
-                      ? 'max-h-[60vh] overflow-y-auto'
-                      : ''
-                  )}>
-                    {msg.role === 'user'
-                      ? <p className="whitespace-pre-wrap break-words min-w-0 max-w-full">{msg.content}</p>
-                      : (
-                        <div className="min-w-0 max-w-full">
-                          {msg.content ? renderMarkdown(msg.content) : (
-                            msg.streaming
-                              ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
-                              : <span className="text-muted-foreground text-sm">…</span>
-                          )}
-                          {msg.streaming && msg.content && (
-                            <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
-                          )}
+      {/* 主体区：聊天 + 可选文件浏览器 */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+
+        {/* ── 聊天区域 ── */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+
+          {/* 消息列表 */}
+          <div ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
+            <ScrollArea className="flex-1 min-h-0 min-w-0 w-full">
+              <div className="flex flex-col gap-4 p-4 pb-2 w-full min-w-0">
+                {messages.map((msg, idx) => {
+                  const isLastAi = idx === lastAiIdx;
+                  // 工具调用行（以 🔧 开头）单独渲染成紧凑的状态条
+                  if (msg.role === 'assistant' && msg.content.startsWith('🔧 **正在执行')) {
+                    return null; // 工具调用 hint 已内嵌在 AI 回复流中，不单独渲染
+                  }
+                  return (
+                    <div key={msg.id} className={cn('flex gap-2.5 w-full min-w-0', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
+                      <div className={cn(
+                        'w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
+                        msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
+                      )}>
+                        {msg.role === 'user'
+                          ? <User className="w-3.5 h-3.5" />
+                          : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
+                      </div>
+                      {/* min-w-0 是关键：flex 子项默认 min-width:auto 会撑爆父容器 */}
+                      <div className="flex flex-col gap-1 min-w-0 overflow-hidden" style={{ maxWidth: 'calc(100% - 2.5rem)' }}>
+                        {/* 气泡 */}
+                        <div className={cn(
+                          'rounded-2xl px-4 py-3 text-sm min-w-0 w-full',
+                          msg.role === 'user'
+                            ? 'bg-primary text-primary-foreground rounded-tr-sm overflow-hidden'
+                            : 'bg-muted/60 border border-border text-foreground rounded-tl-sm overflow-x-auto',
+                          !msg.streaming && msg.content.length > 600
+                            ? 'max-h-[60vh] overflow-y-auto'
+                            : ''
+                        )}>
+                          {msg.role === 'user'
+                            ? <p className="whitespace-pre-wrap break-words break-all min-w-0 w-full">{msg.content}</p>
+                            : (
+                              <div className="min-w-0 w-full">
+                                {msg.content ? renderMarkdown(msg.content) : (
+                                  msg.streaming
+                                    ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
+                                    : <span className="text-muted-foreground text-sm">…</span>
+                                )}
+                                {msg.streaming && msg.content && (
+                                  <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
+                                )}
+                              </div>
+                            )}
                         </div>
-                      )}
-                  </div>
-                  {/* 操作栏（AI消息） */}
-                  {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                    <div className="flex items-center gap-0.5 self-start ml-1">
-                      <CopyButton text={msg.content} />
-                      {isLastAi && (
-                        <button
-                          onClick={handleRegenerate}
-                          disabled={isStreaming}
-                          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                          title="重新生成"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {/* 快速 PR 按钮（最后一条 AI 消息且写过文件） */}
-                      {isLastAi && msg.content.includes('✅ 文件') && (
-                        <button
-                          onClick={() => handleSend(`请帮我从当前分支 \`${selectedBranch}\` 向默认分支提交一个 PR，标题总结刚才的修改内容`)}
-                          disabled={isStreaming}
-                          className="flex items-center gap-1 p-1 px-2 rounded text-xs text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
-                          title="一键提交 PR"
-                        >
-                          <GitPullRequest className="w-3.5 h-3.5" />
-                          提交 PR
-                        </button>
-                      )}
+                        {/* 操作栏（AI 消息完成后） */}
+                        {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                          <div className="flex items-center gap-0.5 self-start ml-1">
+                            <CopyButton text={msg.content} />
+                            {isLastAi && (
+                              <button
+                                onClick={handleRegenerate}
+                                disabled={isStreaming}
+                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                                title="重新生成"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {/* 一键提 PR：AI 写过文件后显示 */}
+                            {isLastAi && (msg.content.includes('✅ 文件') || msg.content.includes('✅ 已 patch') || msg.content.includes('✅ 分支')) && (
+                              <button
+                                onClick={() => handleSend(`请帮我从当前分支 \`${selectedBranch}\` 向默认分支提交一个 PR，标题总结刚才的修改内容`)}
+                                disabled={isStreaming}
+                                className="flex items-center gap-1 p-1 px-2 rounded text-xs text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                                title="一键提交 PR"
+                              >
+                                <GitPullRequest className="w-3.5 h-3.5" />
+                                提交 PR
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  );
+                })}
+                <div ref={bottomRef} />
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* 快捷指令（首次入场显示） */}
+          {messages.length <= 1 && !isStreaming && (
+            <div className="px-3 pb-2 shrink-0">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Zap className="w-3 h-3 text-primary/70" />
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">快捷指令</span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {QUICK_PROMPTS.map(q => {
+                  const Icon = q.icon;
+                  return (
+                    <button
+                      key={q.label}
+                      onClick={() => handleSend(q.text)}
+                      className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-primary/5 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all duration-150 whitespace-nowrap group"
+                    >
+                      <Icon className="w-3 h-3 shrink-0 group-hover:text-primary" />
+                      <span>{q.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 输入区 */}
+          <div className="px-3 py-3 shrink-0 bg-card">
+            <div className={cn(
+              'rounded-xl border bg-background transition-shadow duration-200',
+              isStreaming
+                ? 'border-primary/40 shadow-sm shadow-primary/10'
+                : 'border-border hover:border-border/80 focus-within:border-primary/50 focus-within:shadow-sm focus-within:shadow-primary/10'
+            )}>
+              {/* 工具栏 */}
+              <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowModelSettings(true)}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors group"
+                    title="切换模型"
+                  >
+                    <Sparkles className="w-3 h-3 group-hover:text-primary shrink-0" />
+                    <span className="font-medium">{currentModelDef.label}</span>
+                    {modelConfig.model && (
+                      <span className="hidden sm:inline text-[10px] opacity-70">· {modelConfig.model}</span>
+                    )}
+                  </button>
+                  {/* 文件浏览器快捷开关（输入框内） */}
+                  <button
+                    onClick={() => setShowFileBrowser(v => !v)}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors',
+                      showFileBrowser
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-primary/8'
+                    )}
+                    title="文件浏览器"
+                  >
+                    <PanelRight className="w-3 h-3 shrink-0" />
+                    <span className="hidden sm:inline">文件</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-0.5">
+                  {sessionId && (
+                    <span className="text-[10px] text-green-500 px-1" title="对话已保存">●</span>
                   )}
+                  <div className="w-px h-3.5 bg-border mx-0.5" />
+                  <button
+                    onClick={() => setShowHistory(true)}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
+                    title="历史对话"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={handleClearChat}
+                    disabled={isStreaming}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors disabled:opacity-40"
+                    title="清空对话"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-            );
-          })}
-          <div ref={bottomRef} />
-        </div>
-      </ScrollArea></div>
 
-      {/* 快捷指令 */}
-      {messages.length <= 1 && !isStreaming && (
-        <div className="px-3 pb-2 shrink-0">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Zap className="w-3 h-3 text-primary/70" />
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">快捷指令</span>
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {QUICK_PROMPTS.map(q => {
-              const Icon = q.icon;
-              return (
-                <button
-                  key={q.label}
-                  onClick={() => handleSend(q.text)}
-                  className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-primary/5 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all duration-150 whitespace-nowrap group"
-                >
-                  <Icon className="w-3 h-3 shrink-0 group-hover:text-primary" />
-                  <span>{q.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              <div className="mx-3 h-px bg-border/60" />
 
-      {/* 输入区 */}
-      <div className="px-3 py-3 shrink-0 bg-card">
-        {/* 统一输入卡片 */}
-        <div className={cn(
-          'rounded-xl border bg-background transition-shadow duration-200',
-          isStreaming
-            ? 'border-primary/40 shadow-sm shadow-primary/10'
-            : 'border-border hover:border-border/80 focus-within:border-primary/50 focus-within:shadow-sm focus-within:shadow-primary/10'
-        )}>
-          {/* 工具栏 */}
-          <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-            <div className="flex items-center gap-1">
-              {/* 模型标签 */}
-              <button
-                onClick={() => setShowModelSettings(true)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors group"
-                title="切换模型"
-              >
-                <Sparkles className="w-3 h-3 group-hover:text-primary shrink-0" />
-                <span className="font-medium">{currentModelDef.label}</span>
-                {modelConfig.model && (
-                  <span className="hidden sm:inline text-[10px] opacity-70">· {modelConfig.model}</span>
+              <div className="flex items-end gap-2 px-3 py-2">
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="输入消息… （Enter 发送，Shift+Enter 换行）"
+                  className="flex-1 min-w-0 min-h-[36px] max-h-28 resize-none border-0 shadow-none bg-transparent px-0 py-0.5 text-sm focus-visible:ring-0 placeholder:text-muted-foreground/60 overflow-y-auto"
+                  disabled={isStreaming}
+                  rows={1}
+                  style={{ height: 'auto' }}
+                />
+                {isStreaming ? (
+                  <button
+                    onClick={handleStop}
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-colors"
+                    title="停止生成"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSend()}
+                    disabled={!input.trim()}
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                    title="发送（Enter）"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
-            <div className="flex items-center gap-0.5">
-              {sessionId && (
-                <span className="text-[10px] text-green-500 px-1" title="对话已保存">●</span>
-              )}
-              <div className="w-px h-3.5 bg-border mx-0.5" />
-              {/* 历史 */}
-              <button
-                onClick={() => setShowHistory(true)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
-                title="历史对话"
-              >
-                <History className="w-3.5 h-3.5" />
-              </button>
-              {/* 清空 */}
-              <button
-                onClick={handleClearChat}
-                disabled={isStreaming}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors disabled:opacity-40"
-                title="清空对话"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* 分隔线 */}
-          <div className="mx-3 h-px bg-border/60" />
-
-          {/* 文本框 + 发送 */}
-          <div className="flex items-end gap-2 px-3 py-2">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="输入消息… （Enter 发送，Shift+Enter 换行）"
-              className="flex-1 min-w-0 min-h-[36px] max-h-28 resize-none border-0 shadow-none bg-transparent px-0 py-0.5 text-sm focus-visible:ring-0 placeholder:text-muted-foreground/60 overflow-y-auto"
-              disabled={isStreaming}
-              rows={1}
-              style={{ height: 'auto' }}
-            />
-            {/* 发送 / 停止 按钮 */}
-            {isStreaming ? (
-              <button
-                onClick={handleStop}
-                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-colors"
-                title="停止生成"
-              >
-                <Square className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <button
-                onClick={() => handleSend()}
-                disabled={!input.trim()}
-                className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                title="发送（Enter）"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
+
+        {/* ── 文件浏览器侧边面板 ── */}
+        {showFileBrowser && selectedRepo && (
+          <div className="w-56 shrink-0 min-h-0 flex flex-col border-l border-border overflow-hidden">
+            <FileBrowserPanel
+              owner={selectedRepo.owner.login}
+              repo={selectedRepo.name}
+              branch={selectedBranch}
+              onInsert={handleFileBrowserInsert}
+              onClose={() => setShowFileBrowser(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* 弹窗 */}

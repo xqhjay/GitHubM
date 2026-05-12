@@ -90,6 +90,93 @@ async function listFiles(ctx: GithubContext, path: string): Promise<string> {
   } catch (e) { return `列出目录失败：${(e as Error).message}`; }
 }
 
+/**
+ * 递归列出文件树（深度可控），适合快速了解项目结构。
+ * @param maxDepth 最大递归深度（默认3）
+ * @param ignorePatterns 跳过的目录名（默认跳过 node_modules/.git/dist/build/.next）
+ */
+async function getFileTree(
+  ctx: GithubContext,
+  path: string,
+  maxDepth = 3,
+  currentDepth = 0,
+  ignorePatterns = ["node_modules", ".git", "dist", "build", ".next", ".turbo", "__pycache__", ".cache"],
+): Promise<string> {
+  if (currentDepth >= maxDepth) return "";
+  try {
+    const data = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${path}`);
+    if (!Array.isArray(data)) return "";
+    const indent = "  ".repeat(currentDepth);
+    const lines: string[] = [];
+    for (const item of data as Array<{ name: string; type: string; size: number }>) {
+      if (item.type === "dir") {
+        if (ignorePatterns.includes(item.name)) {
+          lines.push(`${indent}📁 ${item.name}/ (已跳过)`);
+          continue;
+        }
+        lines.push(`${indent}📁 ${item.name}/`);
+        const sub = await getFileTree(ctx, path ? `${path}/${item.name}` : item.name, maxDepth, currentDepth + 1, ignorePatterns);
+        if (sub) lines.push(sub);
+      } else {
+        lines.push(`${indent}📄 ${item.name} (${item.size}B)`);
+      }
+    }
+    return lines.join("\n");
+  } catch { return ""; }
+}
+
+async function fileTree(ctx: GithubContext, path: string, maxDepth: number): Promise<string> {
+  try {
+    const depth = Math.min(maxDepth || 3, 5); // 最大深度不超过 5，防止超时
+    const tree = await getFileTree(ctx, path || "", depth);
+    return `仓库文件树（${path || "/"}, 深度${depth}）：\n${tree || "（空目录）"}`;
+  } catch (e) { return `获取文件树失败：${(e as Error).message}`; }
+}
+
+/**
+ * 在文件中搜索文本（逐行 grep），返回匹配行的行号+内容。
+ * 适用于 GitHub Search API 速率受限时的替代方案。
+ */
+async function grepInFile(
+  ctx: GithubContext,
+  filePath: string,
+  pattern: string,
+  caseSensitive = false,
+): Promise<string> {
+  try {
+    const data = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}`);
+    if (data.encoding !== "base64") return `无法解码文件 "${filePath}"`;
+    const content = decodeBase64Utf8(data.content);
+    const lines = content.split("\n");
+    const regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), caseSensitive ? "g" : "gi");
+    const matches: string[] = [];
+    lines.forEach((line, i) => {
+      if (regex.test(line)) {
+        matches.push(`${String(i + 1).padStart(5, " ")} | ${line}`);
+      }
+      regex.lastIndex = 0;
+    });
+    if (!matches.length) return `"${filePath}" 中未找到匹配 "${pattern}" 的行`;
+    return `"${filePath}" 中匹配 "${pattern}" 的行（共 ${matches.length} 处）：\n\`\`\`\n${matches.slice(0, 50).join("\n")}\n\`\`\`` +
+      (matches.length > 50 ? `\n（仅显示前 50 条，共 ${matches.length} 条）` : "");
+  } catch (e) { return `grep 搜索失败：${(e as Error).message}`; }
+}
+
+/**
+ * 批量读取多个文件（逗号分隔路径），一次工具调用读取多个文件，减少 round trip。
+ * 每个文件自动分段返回前 100 行（防止超长）。
+ */
+async function batchReadFiles(ctx: GithubContext, paths: string): Promise<string> {
+  const fileList = paths.split(",").map(p => p.trim()).filter(Boolean).slice(0, 5); // 最多5个
+  if (!fileList.length) return "请提供至少一个文件路径";
+  const results: string[] = [];
+  for (const fp of fileList) {
+    const content = await readFile(ctx, fp, 1, 100);
+    results.push(`\n=== ${fp} ===\n${content}`);
+  }
+  return results.join("\n");
+}
+
 /** base64 + UTF-8 解码（正确处理中文/日文/emoji 等多字节字符） */
 function decodeBase64Utf8(b64: string): string {
   const binaryStr = atob(b64.replace(/\n/g, ""));
@@ -559,54 +646,63 @@ ${branchNote}
 
 📁 **文件操作**
 1. 列出目录：{"tool":"list_files","path":"src/"}
-2. 读取文件（带行号）：{"tool":"read_file","path":".github/workflows/deploy.yml"}
-3. 分段读取大文件：{"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"80"}
-4. 局部修改（推荐，仅替换指定行）：
+2. 获取完整文件树（推荐用于了解项目结构）：{"tool":"file_tree","path":"","depth":"3"}
+3. 读取文件（带行号）：{"tool":"read_file","path":".github/workflows/deploy.yml"}
+4. 分段读取大文件（超长文件必须分段，每次最多读 100 行）：{"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"100"}
+5. 文件内搜索（grep）：{"tool":"grep_in_file","path":"src/main.kt","pattern":"TODO","case_sensitive":"false"}
+6. 批量读取多个文件（逗号分隔，最多5个，每文件前100行）：{"tool":"batch_read","paths":"src/a.ts,src/b.ts,src/c.ts"}
+7. 搜索代码（GitHub Search API）：{"tool":"search_code","query":"TODO"}
+8. 局部修改（推荐，仅替换指定行）：
    {"tool":"patch_file","path":"src/App.tsx","start_line":"10","end_line":"15","content":"新内容","message":"fix: 修复某处","branch":"${targetBranch || "main"}"}
-5. 全量写入（新建文件或大幅重写时用）：
+9. 全量写入（新建文件或大幅重写时用）：
    {"tool":"write_file","path":".github/workflows/deploy.yml","content":"...","message":"ci: 更新部署工作流","branch":"${targetBranch || "main"}"}
-6. 删除文件：{"tool":"delete_file","path":"src/old.ts","message":"chore: 删除废弃文件","branch":"${targetBranch || "main"}"}
-7. 搜索代码：{"tool":"search_code","query":"TODO"}
+10. 删除文件：{"tool":"delete_file","path":"src/old.ts","message":"chore: 删除废弃文件","branch":"${targetBranch || "main"}"}
 
 🔀 **分支 & PR**
-8. 列出分支：{"tool":"list_branches"}
-9. 新建分支：{"tool":"create_branch","branch":"fix/bug-123","from":"${targetBranch || "main"}"}
-10. 获取提交历史：{"tool":"list_commits","path":""}
-11. 列出 PR：{"tool":"list_pull_requests","state":"open"}
-12. 创建 PR：{"tool":"create_pr","title":"fix: 修复构建失败","head":"fix/build","base":"main","body":"描述"}
-13. 合并 PR：{"tool":"merge_pull_request","pull_number":"42","merge_method":"squash"}
+11. 列出分支：{"tool":"list_branches"}
+12. 新建分支：{"tool":"create_branch","branch":"fix/bug-123","from":"${targetBranch || "main"}"}
+13. 获取提交历史：{"tool":"list_commits","path":""}
+14. 列出 PR：{"tool":"list_pull_requests","state":"open"}
+15. 创建 PR：{"tool":"create_pr","title":"fix: 修复构建失败","head":"fix/build","base":"main","body":"描述"}
+16. 合并 PR：{"tool":"merge_pull_request","pull_number":"42","merge_method":"squash"}
 
 🐛 **Issue 管理**
-14. 列出 Issues：{"tool":"list_issues","state":"open"}
-15. 创建 Issue：{"tool":"create_issue","title":"构建失败","body":"描述","labels":"bug,ci"}
+17. 列出 Issues：{"tool":"list_issues","state":"open"}
+18. 创建 Issue：{"tool":"create_issue","title":"构建失败","body":"描述","labels":"bug,ci"}
 
 ⚙️ **工作流 & 部署**
-16. 列出所有工作流：{"tool":"list_workflows"}
-17. 查看工作流最近运行：{"tool":"get_workflow_runs","workflow_id":"deploy.yml","limit":"5"}
+19. 列出所有工作流：{"tool":"list_workflows"}
+20. 查看工作流最近运行：{"tool":"get_workflow_runs","workflow_id":"deploy.yml","limit":"5"}
     （workflow_id 可以是文件名如 deploy.yml 或数字 ID；不填则查全部运行）
-18. 查看某次运行的 Jobs 及步骤：{"tool":"get_run_jobs","run_id":"12345678"}
-19. 下载 Job 日志（含报错详情）：{"tool":"get_job_logs","job_id":"87654321"}
-20. 手动触发工作流：{"tool":"trigger_workflow","workflow_id":"deploy.yml","ref":"main","inputs":{}}
-21. 取消运行中的工作流：{"tool":"cancel_workflow_run","run_id":"12345678"}
-22. 重新运行失败的工作流：{"tool":"rerun_workflow_run","run_id":"12345678","failed_jobs_only":"true"}
-23. 查看 Actions Secrets 名称：{"tool":"list_actions_secrets"}
+21. 查看某次运行的 Jobs 及步骤：{"tool":"get_run_jobs","run_id":"12345678"}
+22. 下载 Job 日志（含报错详情）：{"tool":"get_job_logs","job_id":"87654321"}
+23. 手动触发工作流：{"tool":"trigger_workflow","workflow_id":"deploy.yml","ref":"main","inputs":{}}
+24. 取消运行中的工作流：{"tool":"cancel_workflow_run","run_id":"12345678"}
+25. 重新运行失败的工作流：{"tool":"rerun_workflow_run","run_id":"12345678","failed_jobs_only":"true"}
+26. 查看 Actions Secrets 名称：{"tool":"list_actions_secrets"}
 
 ==============================
 全流程开发标准工作流
 ==============================
 
+🔍 **探索未知项目（首选方案）**：
+  1. file_tree 一次性获取完整项目结构（depth:3）
+  2. batch_read 同时读取 README + 关键配置文件
+  3. grep_in_file 在特定文件中定位关键代码
+
 🚀 **部署新功能**：
   1. create_branch 创建功能分支
-  2. read_file / write_file / patch_file 编写/修改代码
-  3. create_pr 提交 PR → merge_pull_request 合并
-  4. trigger_workflow 触发部署工作流
-  5. get_workflow_runs 轮询查看部署状态
+  2. file_tree / read_file / batch_read 理解代码结构
+  3. grep_in_file 定位需要修改的具体行号
+  4. patch_file 精确修改代码（优先于 write_file）
+  5. create_pr 提交 PR → merge_pull_request 合并
+  6. trigger_workflow 触发部署 → get_workflow_runs 轮询状态
 
 🔍 **排查构建/部署失败**：
   1. get_workflow_runs 找到最新失败的运行 ID
   2. get_run_jobs 查看哪个 Job/步骤失败
   3. get_job_logs 下载该 Job 的完整日志，定位具体报错
-  4. read_file / search_code 找到问题源码
+  4. grep_in_file / search_code 找到问题源码
   5. patch_file 修复代码 → rerun_workflow_run 重新触发
 
 🔧 **修改工作流文件**：
@@ -616,10 +712,19 @@ ${branchNote}
   4. trigger_workflow 验证新工作流
 
 ==============================
+超长文件处理策略
+==============================
+- 文件 > 200 行：必须使用 start_line/end_line 分段读取，每次不超过 100 行
+- 先读取前 50 行了解结构，再按需分段读取目标区域
+- 使用 grep_in_file 精确定位目标行号，避免盲目翻阅
+- batch_read 适合同时了解多个小文件（如配置文件组合）
+
+==============================
 重要规则
 ==============================
 - 查看日志时先用 get_run_jobs 找到失败 Job ID，再用 get_job_logs 获取日志
 - patch_file 比 write_file 更安全，修改工作流文件时优先使用 patch
+- 修改前必须先用 grep_in_file 或 read_file 确认精确的行号
 - commit message 使用中文，遵循 Conventional Commits（fix/feat/ci/chore/docs）
 - 对话语言：中文；操作完成后给出简洁总结`;
 }
@@ -684,6 +789,10 @@ async function executeTool(
     case "write_file":   return writeFile(ctx, call.path, call.content, call.message, call.branch || targetBranch);
     case "delete_file":  return deleteFile(ctx, call.path, call.message, call.branch || targetBranch);
     case "search_code":  return searchCode(ctx, call.query);
+    // ── 新工具 ───────────────────────────────────────────────────────────
+    case "file_tree":    return fileTree(ctx, call.path || "", parseInt(call.depth || "3", 10));
+    case "grep_in_file": return grepInFile(ctx, call.path, call.pattern, call.case_sensitive === "true");
+    case "batch_read":   return batchReadFiles(ctx, call.paths || "");
     // ── 分支 & PR ────────────────────────────────────────────────────────────
     case "list_branches":     return listBranches(ctx);
     case "list_commits":      return listCommits(ctx, call.path, call.branch || targetBranch);
@@ -767,6 +876,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       // 文件操作
       list_files: "列出目录", read_file: "读取文件", patch_file: "局部修改文件",
       write_file: "写入文件", delete_file: "删除文件", search_code: "搜索代码",
+      file_tree: "文件树", grep_in_file: "文件内搜索", batch_read: "批量读取文件",
       // 分支 & PR
       list_branches: "列出分支", list_commits: "提交历史", create_branch: "新建分支",
       list_pull_requests: "列出 PR", create_pr: "创建 PR", merge_pull_request: "合并 PR",
@@ -778,7 +888,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       trigger_workflow: "触发工作流", cancel_workflow_run: "取消运行",
       rerun_workflow_run: "重新运行", list_actions_secrets: "查看 Secrets",
     };
-    const MAX_ROUNDS = 8;
+    const MAX_ROUNDS = 15;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let assistantText = "";
@@ -810,7 +920,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
                   ? `${toolCall.workflow_id} @ ${toolCall.ref}`
                   : toolCall.tool === "merge_pull_request"
                     ? `PR #${toolCall.pull_number}`
-                    : toolCall.path || toolCall.query || toolCall.title || toolCall.branch || "";
+                    : toolCall.tool === "file_tree"
+                      ? `${toolCall.path || "/"} (深度${toolCall.depth || 3})`
+                      : toolCall.tool === "grep_in_file"
+                        ? `${toolCall.path} → "${toolCall.pattern}"`
+                        : toolCall.tool === "batch_read"
+                          ? toolCall.paths
+                          : toolCall.path || toolCall.query || toolCall.title || toolCall.branch || "";
       await sendChunk(`🔧 **正在执行：${label}** \`${hint}\`\n\n`);
 
       let toolResult = "";

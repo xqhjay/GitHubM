@@ -5,6 +5,8 @@ import {
   FolderOpen, BookOpen, Search, FileCode2, Pencil,
   GitBranch, GitCommit, GitMerge, CircleAlert,
   Play, ListChecks, BugPlay, LayoutDashboard,
+  FolderSearch, ScanSearch, Files, GitPullRequest,
+  Cpu, Wrench,
 } from 'lucide-react';
 
 // ── 模型类型（从 aiTypes 导入，在此仅重导出供外部使用）──────────────────────────────
@@ -71,19 +73,28 @@ export const MODEL_DEFS: ModelDef[] = [
 // ── 快捷指令 ────────────────────────────────────────────────────────────────────
 
 export const QUICK_PROMPTS = [
-  { icon: FolderOpen,      label: '项目结构',   text: '帮我分析一下这个仓库的整体项目结构和技术栈' },
-  { icon: BookOpen,        label: '查看 README', text: '请读取并展示 README.md 的内容' },
-  { icon: Search,          label: '搜索 TODO',  text: '搜索仓库中所有包含 TODO 注释的代码位置，并列出需要完成的工作' },
-  { icon: FileCode2,       label: '代码审查',   text: '请列出根目录文件结构，然后挑选主要源码文件进行代码质量审查，给出改进建议' },
-  { icon: Pencil,          label: '优化 README', text: '请读取 README.md，帮我优化内容使其更专业，然后写入更新' },
-  { icon: GitBranch,       label: '列出分支',   text: '请列出该仓库所有的分支' },
-  { icon: GitCommit,       label: '提交历史',   text: '请展示仓库最近 10 条提交记录，并总结最近的变更方向' },
-  { icon: GitMerge,        label: '查看 PR',    text: '请列出该仓库所有 open 状态的 Pull Request' },
-  { icon: CircleAlert,     label: '查看 Issues', text: '请列出该仓库所有 open 状态的 Issues，并按优先级分类总结' },
-  { icon: Play,            label: '工作流列表', text: '请列出仓库所有 GitHub Actions 工作流文件' },
-  { icon: ListChecks,      label: '最近部署',   text: '请查看最近 5 次 GitHub Actions 运行记录，告诉我哪些成功、哪些失败' },
-  { icon: BugPlay,         label: '排查失败',   text: '请找出最近一次失败的工作流运行，查看其 Job 列表，下载失败 Job 的日志，分析报错原因并给出修复建议' },
-  { icon: LayoutDashboard, label: '查看 Secrets', text: '请列出该仓库配置的 Actions Secrets 名称（不含值），检查是否有缺失的环境变量' },
+  // 探索类
+  { icon: FolderSearch,   label: '文件树',      text: '请用 file_tree 工具获取完整项目文件树（深度3），分析项目结构和技术栈' },
+  { icon: FolderOpen,     label: '项目结构',    text: '帮我分析一下这个仓库的整体项目结构和技术栈，包括主要目录和核心文件' },
+  { icon: BookOpen,       label: '查看 README', text: '请读取并展示 README.md 的内容' },
+  { icon: ScanSearch,     label: '搜索 TODO',   text: '请用 search_code 工具搜索仓库中所有包含 TODO 注释的代码位置，列出需要完成的工作' },
+  { icon: Files,          label: '批量读取',    text: '请列出根目录文件，然后用 batch_read 工具同时读取 README.md 和主要配置文件（如 package.json、build.gradle 等）' },
+  // 编辑类
+  { icon: FileCode2,      label: '代码审查',    text: '请先用 file_tree 获取项目结构，然后挑选 3-5 个主要源码文件进行代码质量审查，给出改进建议' },
+  { icon: Pencil,         label: '优化 README', text: '请读取 README.md，帮我优化内容使其更专业完整，然后用 write_file 写入更新' },
+  { icon: Wrench,         label: '重构建议',    text: '请分析项目文件树，找出可以重构优化的模块，并给出具体建议' },
+  // Git 操作类
+  { icon: GitBranch,      label: '列出分支',    text: '请列出该仓库所有的分支' },
+  { icon: GitCommit,      label: '提交历史',    text: '请展示仓库最近 10 条提交记录，并总结最近的变更方向' },
+  { icon: GitMerge,       label: '查看 PR',     text: '请列出该仓库所有 open 状态的 Pull Request' },
+  { icon: GitPullRequest, label: '创建 PR',     text: '请帮我创建一个 Pull Request，从当前分支合并到默认分支，标题总结最近的修改内容' },
+  { icon: CircleAlert,    label: '查看 Issues', text: '请列出该仓库所有 open 状态的 Issues，并按优先级分类总结' },
+  // CI/CD 类
+  { icon: Play,           label: '工作流列表',  text: '请列出仓库所有 GitHub Actions 工作流文件及其状态' },
+  { icon: ListChecks,     label: '最近部署',    text: '请查看最近 5 次 GitHub Actions 运行记录，告诉我哪些成功、哪些失败' },
+  { icon: BugPlay,        label: '排查失败',    text: '请找出最近一次失败的工作流运行，查看 Job 列表，下载失败 Job 的日志，分析报错原因并给出修复建议' },
+  { icon: Cpu,            label: '自动修复',    text: '请找出最近一次失败的工作流，分析日志，定位问题源码，自动修复并提交到当前分支' },
+  { icon: LayoutDashboard,label: '查看 Secrets','text': '请列出该仓库配置的 Actions Secrets 名称（不含值），检查是否有缺失的环境变量' },
 ];
 
 // ── 纯工具函数 ──────────────────────────────────────────────────────────────────
@@ -173,9 +184,12 @@ export function renderMarkdown(text: string): React.ReactNode {
               <span className="text-[10px] font-mono text-muted-foreground select-none">{lang}</span>
             </div>
           )}
-          <pre className="overflow-x-auto max-w-full p-3 text-[11px] font-mono leading-relaxed">
-            <code className="break-normal whitespace-pre">{codeText}</code>
-          </pre>
+          {/* 代码块：overflow-x-auto 横向滚动，pre 不换行保留格式，外层约束最大宽度 */}
+          <div className="overflow-x-auto max-w-full">
+            <pre className="p-3 text-[11px] font-mono leading-relaxed min-w-0" style={{ width: 'max-content', minWidth: '100%' }}>
+              <code className="whitespace-pre">{codeText}</code>
+            </pre>
+          </div>
         </div>
       );
       i++; continue;
@@ -258,5 +272,5 @@ export function renderMarkdown(text: string): React.ReactNode {
   }
   /* overflow-hidden 在此被移除：内层 pre 的 overflow-x-auto 需要能形成独立滚动上下文，
      外部气泡已用 overflow-x-auto 兜底，根 div 只需约束宽度即可 */
-  return <div className="flex flex-col gap-0.5 min-w-0 max-w-full">{result}</div>;
+  return <div className="flex flex-col gap-0.5 min-w-0 max-w-full overflow-hidden">{result}</div>;
 }
