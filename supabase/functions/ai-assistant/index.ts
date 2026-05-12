@@ -783,15 +783,26 @@ async function callLLM(
 ): Promise<string> {
   const { url, headers, bodyExtra } = buildLLMRequest(cfg, platformKey);
   console.log(`[callLLM] type=${cfg.type} model=${cfg.model || "default"} url=${url}`);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify({ messages, ...bodyExtra }),
-  });
+  // LLM API 独立超时 180 秒，防止 fetch 无限挂起
+  const llmAbort = new AbortController();
+  const llmTimer = setTimeout(() => llmAbort.abort(), 180_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ messages, ...bodyExtra }),
+      signal: llmAbort.signal,
+    });
+  } finally {
+    clearTimeout(llmTimer);
+  }
   if (!res.ok || !res.body) {
     const errText = await res.text();
     console.error(`[callLLM] 失败 status=${res.status} body=${errText.slice(0, 300)}`);
-    throw new Error(`LLM 调用失败: ${res.status} ${errText}`);
+    // 截断过长错误信息，防止 Error message 过大（如 429 限流页面返回 HTML）
+    const shortErr = errText.length > 500 ? errText.slice(0, 500) + "…" : errText;
+    throw new Error(`LLM 调用失败: HTTP ${res.status} ${shortErr}`);
   }
 
   const reader = res.body.getReader();
@@ -825,6 +836,8 @@ async function callLLM(
     }
   }
   console.log(`[callLLM] 完成 full.length=${full.length}`);
+  // 防止 LLM 只输出思考过程而无正式内容（常见于免费模型限流或异常）
+  if (!full) throw new Error("LLM 返回空内容，可能被限流或模型异常");
   return full;
 }
 
