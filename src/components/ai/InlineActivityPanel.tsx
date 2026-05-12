@@ -1,6 +1,6 @@
 // 内联任务活动面板 —— 直接嵌入 AI 聊天气泡
 // 在移动端和桌面端均可见，无需打开侧边面板
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle2, XCircle, Loader2, Clock,
   ChevronDown, ChevronRight,
@@ -144,6 +144,22 @@ export default function InlineActivityPanel({
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
+  // 流式结束后自动折叠任务面板，避免遮挡最终回答文字
+  useEffect(() => {
+    if (streaming === false) {
+      // 延迟 400ms 折叠，让用户感知到任务完成状态后再收起
+      const t = setTimeout(() => {
+        setPlanCollapsed(true);
+        setToolsCollapsed(true);
+      }, 400);
+      return () => clearTimeout(t);
+    } else {
+      // 新任务开始时重新展开
+      setPlanCollapsed(false);
+      setToolsCollapsed(false);
+    }
+  }, [streaming]);
+
   const hasPlan = inlinePlan && inlinePlan.length > 0;
   const hasTools = inlineTools && inlineTools.length > 0;
 
@@ -230,17 +246,21 @@ export default function InlineActivityPanel({
             className="w-full flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors"
           >
             <Wrench className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <span className="flex-1 text-left">
+            <span className="flex-1 text-left min-w-0 truncate">
               {runningTool
                 ? <span className="flex items-center gap-1.5 text-primary">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    {runningTool.label}
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    <span className="truncate">{runningTool.label}{runningTool.hint ? ` · ${runningTool.hint}` : ''}</span>
                   </span>
-                : <span>工具调用 ({inlineTools.length})</span>}
+                : <span className="text-muted-foreground">已调用 {inlineTools.length} 个工具</span>}
             </span>
             {!runningTool && (
-              <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
-                {inlineTools.filter(t => t.status === 'success').length}/{inlineTools.length} 成功
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
+                inlineTools.filter(t => t.status === 'fail').length > 0
+                  ? 'bg-destructive/10 text-destructive'
+                  : 'bg-green-500/10 text-green-600'
+              }`}>
+                {inlineTools.filter(t => t.status === 'success').length}/{inlineTools.length}
               </span>
             )}
             {toolsCollapsed
