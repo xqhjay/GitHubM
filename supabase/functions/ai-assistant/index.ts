@@ -289,7 +289,10 @@ function decodeBase64Utf8(b64: string): string {
  * 读取文件内容。
  * @param startLine 起始行号（1-based，可选），不传则从头读
  * @param endLine   结束行号（1-based，可选），不传则到末尾
- * 不再截断字符数，完整返回所请求的行范围。
+ *
+ * 自动处理大文件（>1MB）：GitHub Contents API 对超大文件返回空 content，
+ * 此时自动切换到 Git Blobs API（/git/blobs/{sha}）获取完整内容。
+ * 每次最多返回 500 行（减少 round trips），超出时附带剩余行数提示。
  */
 async function readFile(
   ctx: GithubContext,
@@ -299,35 +302,107 @@ async function readFile(
 ): Promise<string> {
   try {
     const data = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}`);
-    if (data.encoding !== "base64") return `无法解码文件 "${filePath}"（编码：${data.encoding}）`;
+    if (Array.isArray(data)) return `"${filePath}" 是目录，请用 file_tree 列出其内容。`;
 
-    const fullContent = decodeBase64Utf8(data.content);
+    let fullContent: string;
+
+    // 大文件（>1MB）或 content 为空时，切换到 Git Blobs API
+    if (!data.content || data.content.trim() === "" || (data.size && data.size > 1_000_000)) {
+      if (!data.sha) return `无法读取文件 "${filePath}"：缺少 blob SHA，请检查路径是否正确。`;
+      const blob = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/git/blobs/${data.sha}`);
+      if (!blob.content) return `无法读取大文件 "${filePath}"（大小：${data.size ? Math.round(data.size/1024) + "KB" : "未知"}），GitHub API 返回空内容。`;
+      fullContent = decodeBase64Utf8(blob.content);
+    } else {
+      if (data.encoding !== "base64") return `无法解码文件 "${filePath}"（编码：${data.encoding}）`;
+      fullContent = decodeBase64Utf8(data.content);
+    }
+
     const allLines = fullContent.split("\n");
     const totalLines = allLines.length;
 
     // 确定实际读取范围（转为 0-based 索引）
     const from = startLine ? Math.max(1, startLine) : 1;
-    const to   = endLine   ? Math.min(totalLines, endLine) : totalLines;
+    // 每次最多读 500 行，减少 token 消耗同时覆盖更多代码
+    const MAX_CHUNK = 500;
+    const rawTo = endLine ? Math.min(totalLines, endLine) : totalLines;
+    const to    = Math.min(rawTo, from + MAX_CHUNK - 1);
 
     const selectedLines = allLines.slice(from - 1, to);
+    const isTruncated = to < rawTo || (to < totalLines && !endLine);
+    const fileSizeKB = data.size ? Math.round(data.size / 1024) : null;
+    const sizeNote = fileSizeKB && fileSizeKB > 100 ? ` | 文件大小: ${fileSizeKB}KB` : "";
+
     const lineHeader = (startLine || endLine)
       ? ` 第 ${from}–${to} 行（共 ${totalLines} 行）`
-      : `（共 ${totalLines} 行）`;
+      : ` 第 ${from}–${to} 行（共 ${totalLines} 行）`;
 
-    // 在每行前加行号，方便 AI 精确定位 patch_file 操作
+    // 每行加行号，方便 patch_file 精确定位
     const numberedContent = selectedLines
       .map((line, i) => `${String(from + i).padStart(6, " ")} | ${line}`)
       .join("\n");
 
+    const truncationHint = isTruncated
+      ? `\n\n⚠️ 文件共 ${totalLines} 行，本次只返回第 ${from}–${to} 行。` +
+        `继续读取请调用：{"tool":"read_file","path":"${filePath}","start_line":"${to + 1}","end_line":"${Math.min(totalLines, to + MAX_CHUNK)}"}`
+      : "";
+
     return (
-      `文件 "${filePath}"${lineHeader}：\n\`\`\`\n${numberedContent}\n\`\`\`` +
-      `\n_SHA: ${data.sha} | 总行数: ${totalLines}_`
+      `文件 "${filePath}"${lineHeader}${sizeNote}：\n\`\`\`\n${numberedContent}\n\`\`\`` +
+      `\n_SHA: ${data.sha} | 总行数: ${totalLines}${sizeNote}_` +
+      truncationHint
     );
   } catch (e) { return diagnose4xx(e, "read_file"); }
 }
 
 /**
- * 局部修改文件（patch）：仅替换指定行范围，不覆盖整个文件。
+ * 获取文件的元信息（大小、总行数、SHA），不返回文件内容。
+ * 用途：AI 读大文件前先调用此工具，了解总行数，制定分段读取计划。
+ * 对于 >1MB 的大文件，会使用 Blobs API 读取内容来统计行数。
+ */
+async function getFileInfo(ctx: GithubContext, filePath: string): Promise<string> {
+  try {
+    const data = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}`);
+    if (Array.isArray(data)) return `"${filePath}" 是目录，请用 file_tree 列出其内容。`;
+
+    const sizeKB = data.size ? Math.round(data.size / 1024) : 0;
+    const isLarge = data.size && data.size > 1_000_000;
+
+    let lineCount = "未知";
+    if (!isLarge && data.content && data.encoding === "base64") {
+      // 普通文件：直接统计行数
+      const content = decodeBase64Utf8(data.content);
+      lineCount = String(content.split("\n").length);
+    } else if (isLarge && data.sha) {
+      // 大文件：通过 Blobs API 获取内容来统计行数
+      try {
+        const blob = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/git/blobs/${data.sha}`);
+        if (blob.content) {
+          const content = decodeBase64Utf8(blob.content);
+          lineCount = String(content.split("\n").length);
+        }
+      } catch {
+        lineCount = "无法统计（Blobs API 失败）";
+      }
+    }
+
+    const MAX_CHUNK = 500;
+    const chunks = lineCount !== "未知" && lineCount !== "无法统计（Blobs API 失败）"
+      ? `\n分段建议：共 ${lineCount} 行，建议每次读 ${MAX_CHUNK} 行，` +
+        `需要 ${Math.ceil(Number(lineCount) / MAX_CHUNK)} 次 read_file 调用可读完全文。`
+      : "";
+
+    return (
+      `文件信息：${filePath}\n` +
+      `- 大小：${sizeKB}KB（${data.size ?? 0} 字节）${isLarge ? " ⚠️ 大文件，将自动用 Blobs API 读取" : ""}\n` +
+      `- 总行数：${lineCount}\n` +
+      `- SHA：${data.sha}\n` +
+      `- 类型：${data.type}` +
+      chunks
+    );
+  } catch (e) { return diagnose4xx(e, "get_file_info"); }
+}
+
+
  * @param startLine 起始行号（1-based，包含）
  * @param endLine   结束行号（1-based，包含）
  * @param newContent 用于替换 [startLine, endLine] 范围的新内容（可多行）
@@ -1091,7 +1166,9 @@ ${branchNote}
 1. 列出目录：{"tool":"list_files","path":"src/"}
 2. 获取完整文件树（推荐用于了解项目结构）：{"tool":"file_tree","path":"","depth":"3"}
 3. 读取文件（带行号）：{"tool":"read_file","path":".github/workflows/deploy.yml"}
-4. 分段读取大文件（超长文件必须分段，每次最多读 100 行）：{"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"100"}
+4. 分段读取大文件（每次最多 500 行，返回中自动附带下一段调用示例）：
+   {"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"500"}
+4b. 读取前先查文件信息（获取总行数、大小，制定分段计划）：{"tool":"get_file_info","path":"src/App.tsx"}
 5. 文件内搜索（grep）：{"tool":"grep_in_file","path":"src/main.kt","pattern":"TODO","case_sensitive":"false"}
 6. 批量读取多个文件（逗号分隔，最多5个，每文件前100行）：{"tool":"batch_read","paths":"src/a.ts,src/b.ts,src/c.ts"}
 7. 搜索代码（GitHub Search API）：{"tool":"search_code","query":"TODO"}
@@ -1272,12 +1349,31 @@ ${branchNote}
   - 不要在 create_release 前询问用户确认，直接执行
 
 ==============================
-超长文件处理策略
+大文件完整读取策略
 ==============================
-- 文件 > 200 行：必须使用 start_line/end_line 分段读取，每次不超过 100 行
-- 先读取前 50 行了解结构，再按需分段读取目标区域
-- 使用 grep_in_file 精确定位目标行号，避免盲目翻阅
-- batch_read 适合同时了解多个小文件（如配置文件组合）
+
+**识别大文件**：文件 > 200 行或 > 100KB 时，视为大文件，必须分段读取。
+
+**标准流程（读取完整大文件的唯一正确方式）**：
+1. 先调用 get_file_info 获取总行数和大小（零内容消耗、快速）
+   {"tool":"get_file_info","path":"src/App.tsx"}
+2. 根据总行数制定分段计划：每段 500 行，计算需要几次 read_file
+3. 逐段调用 read_file（start_line/end_line 按 500 行步进）：
+   第1段：{"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"500"}
+   第2段：{"tool":"read_file","path":"src/App.tsx","start_line":"501","end_line":"1000"}
+   …以此类推，直到读完最后一段
+4. 每次 read_file 返回结果末尾若有 ⚠️ 提示，说明还有未读内容，**必须继续读取**，不得停止
+
+**大文件（>1MB）特别说明**：
+- GitHub Contents API 对 >1MB 文件返回空内容，read_file 已自动切换到 Git Blobs API
+- 用户无需感知此切换，直接正常调用 read_file 即可
+- get_file_info 同样会自动处理大文件的行数统计
+
+**关键规则**：
+- 每段最多 500 行（系统自动限制，超出会截断并附提示）
+- **收到 ⚠️ 截断提示后，必须立即继续读取下一段，不得中断**
+- 若只需定位特定代码，优先用 grep_in_file 精确定位，避免读取无关内容
+- batch_read 适合同时了解多个小文件（如配置文件组合），每文件返回前 100 行
 
 ==============================
 重要规则
@@ -1571,6 +1667,7 @@ function executeTool(
       call.start_line ? parseInt(call.start_line, 10) : undefined,
       call.end_line   ? parseInt(call.end_line,   10) : undefined,
     );
+    case "get_file_info": return getFileInfo(ctx, call.path);
     case "patch_file":   return patchFile(
       ctx, call.path,
       parseInt(call.start_line, 10),
@@ -1877,7 +1974,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const TOOL_LABELS: Record<string, string> = {
       // 文件操作
-      list_files: "列出目录", read_file: "读取文件", patch_file: "局部修改文件",
+      list_files: "列出目录", read_file: "读取文件", get_file_info: "文件信息", patch_file: "局部修改文件",
       write_file: "写入文件", delete_file: "删除文件", search_code: "搜索代码",
       file_tree: "文件树", grep_in_file: "文件内搜索", batch_read: "批量读取文件",
       // 分支 & PR
