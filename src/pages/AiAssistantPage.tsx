@@ -439,7 +439,6 @@ export default function AiAssistantPage() {
             }));
             break;
           case 'step_retry':
-            // 重试中：维持 running 状态，更新重试计数
             setStepStatuses(prev => ({ ...prev, [chunk.stepId]: 'running' }));
             setStepRetryCounts(prev => ({ ...prev, [chunk.stepId]: chunk.retryCount }));
             setCurrentStepId(chunk.stepId);
@@ -453,6 +452,12 @@ export default function AiAssistantPage() {
                 ),
               };
             }));
+            break;
+          case 'status_info':
+            toast.info(chunk.message, { duration: 4000 });
+            break;
+          case 'status_warning':
+            toast.warning(chunk.message, { duration: 5000 });
             break;
           case 'step_end':
             setStepStatuses(prev => ({ ...prev, [chunk.stepId]: chunk.status === 'error' ? 'error' : 'done' }));
@@ -847,14 +852,6 @@ export default function AiAssistantPage() {
                               {(msg.thinkingContent || (msg.streaming && !msg.thinkingDone)) && (
                                 <ThinkingBlock content={msg.thinkingContent || ''} done={msg.thinkingDone} />
                               )}
-                              {/* 内联任务进度（气泡内，移动端/桌面端均显示） */}
-                              {(msg.inlinePlan || msg.inlineTools) && (
-                                <InlineActivityPanel
-                                  inlinePlan={msg.inlinePlan}
-                                  inlineTools={msg.inlineTools}
-                                  streaming={msg.streaming}
-                                />
-                              )}
                               {msg.content ? renderMarkdown(msg.content) : (
                                 msg.streaming
                                   ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
@@ -862,6 +859,14 @@ export default function AiAssistantPage() {
                               )}
                               {msg.streaming && msg.content && (
                                 <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
+                              )}
+                              {/* 内联任务进度（气泡内，文本下方；流式结束后默认折叠，由 InlineActivityPanel 内部控制） */}
+                              {(msg.inlinePlan || msg.inlineTools) && (
+                                <InlineActivityPanel
+                                  inlinePlan={msg.inlinePlan}
+                                  inlineTools={msg.inlineTools}
+                                  streaming={msg.streaming}
+                                />
                               )}
                             </div>
                           )}
