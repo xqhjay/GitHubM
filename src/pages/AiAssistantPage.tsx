@@ -11,7 +11,7 @@ import {
   Sparkles, AlertCircle,
   RefreshCw, Plus, GitPullRequest, History, ArrowLeft, Loader2,
   Zap, FolderSearch, PanelRight, Wrench, ListChecks, Clock, WifiOff, CheckCircle2, XCircle,
-  Paperclip, X, ImageIcon, FileText,
+  Paperclip, X, ImageIcon, FileText, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -923,6 +923,61 @@ export default function AiAssistantPage() {
         {/* ── 聊天区域 ── */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
+          {/* ── 任务进度条（有任务计划时显示在消息列表顶部） ─────────────── */}
+          {taskPlanSteps.length > 0 && (() => {
+            const total = taskPlanSteps.length;
+            const done = taskPlanSteps.filter(s => {
+              const st = stepStatuses[s.id];
+              return st === 'done' || st === 'error';
+            }).length;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const allDone = done === total && !isStreaming;
+            const hasError = taskPlanSteps.some(s => stepStatuses[s.id] === 'error');
+            return (
+              <div className={cn(
+                'shrink-0 px-3 py-2 border-b border-border/50 transition-all duration-500',
+                allDone ? 'bg-green-500/5' : hasError ? 'bg-destructive/5' : 'bg-primary/5'
+              )}>
+                <div className="flex items-center gap-2.5">
+                  {/* 状态图标 */}
+                  {isStreaming && !allDone
+                    ? <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+                    : allDone
+                      ? <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                      : hasError
+                        ? <XCircle className="w-3 h-3 text-destructive shrink-0" />
+                        : <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                  }
+                  {/* 标签 */}
+                  <span className={cn(
+                    'text-[11px] font-medium shrink-0',
+                    allDone ? 'text-green-600 dark:text-green-400'
+                      : hasError ? 'text-destructive'
+                        : 'text-primary'
+                  )}>
+                    {allDone ? '任务完成' : isStreaming ? '执行中' : '已完成'}
+                  </span>
+                  {/* 进度条 */}
+                  <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-500',
+                        allDone ? 'bg-green-500'
+                          : hasError ? 'bg-destructive'
+                            : 'bg-primary'
+                      )}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  {/* 步骤计数 */}
+                  <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                    {done}/{total}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* 消息列表：原生 div 替代 ScrollArea，避免 Android WebView 中 Radix 内部宽度偏差截断文字 */}
           <div
             ref={scrollAreaRef}
@@ -963,102 +1018,28 @@ export default function AiAssistantPage() {
 
                 // ── AI：step 气泡（工具执行节点）────────────────────────────
                 if (msg.bubbleType === 'step') {
-                  const hasTools = msg.inlineTools && msg.inlineTools.length > 0;
-                  const toolsDone = msg.inlineTools?.every(t => t.status !== 'running') ?? true;
-                  const hasError = msg.inlineTools?.some(t => t.status === 'fail') ?? false;
-                  const stepDone = !msg.streaming && toolsDone;
-
                   return (
-                    <div key={msg.id} className="flex gap-2.5 flex-row">
-                      {/* 头像：步骤气泡用较小的点状进度指示 */}
-                      <div className="flex flex-col items-center gap-0 shrink-0 mt-1">
-                        <div className={cn(
-                          'w-6 h-6 rounded-full flex items-center justify-center border',
-                          msg.streaming
-                            ? 'bg-primary/10 border-primary/30'
-                            : hasError
-                              ? 'bg-destructive/10 border-destructive/30'
-                              : 'bg-green-500/10 border-green-500/30'
-                        )}>
-                          {msg.streaming
-                            ? <Loader2 className="w-3 h-3 text-primary animate-spin" />
-                            : hasError
-                              ? <XCircle className="w-3 h-3 text-destructive" />
-                              : <CheckCircle2 className="w-3 h-3 text-green-500" />}
-                        </div>
-                        {/* 竖线连接下一个气泡 */}
-                        <div className="w-px flex-1 min-h-[8px] bg-border/40 mt-1" />
-                      </div>
-
-                      <div className="flex flex-col gap-1.5 flex-1 min-w-0 pb-1">
-                        {/* 步骤标题行 */}
-                        <div className={cn(
-                          'flex items-center gap-2 rounded-xl px-3 py-2 border text-sm min-w-0 transition-colors',
-                          msg.streaming
-                            ? 'bg-primary/5 border-primary/20'
-                            : hasError
-                              ? 'bg-destructive/5 border-destructive/20'
-                              : 'bg-muted/40 border-border/50'
-                        )}>
-                          <span className={cn(
-                            'font-medium text-xs truncate flex-1',
-                            msg.streaming ? 'text-primary' : hasError ? 'text-destructive' : 'text-foreground/70'
-                          )}>
-                            {msg.stepTitle ?? '执行中'}
-                          </span>
-                          {msg.streaming && (
-                            <span className="text-[10px] text-primary/70 shrink-0 animate-pulse">进行中…</span>
-                          )}
-                          {stepDone && !hasError && hasTools && (
-                            <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0">
-                              {msg.inlineTools!.filter(t => t.status === 'success').length}/{msg.inlineTools!.length} 工具完成
-                            </span>
-                          )}
-                          {hasError && (
-                            <span className="text-[10px] text-destructive shrink-0">失败</span>
-                          )}
-                        </div>
-
-                        {/* 工具调用列表（仅工具，不显示全局计划列表） */}
-                        {hasTools && (
-                          <div className="pl-1">
-                            <InlineActivityPanel
-                              inlineTools={msg.inlineTools}
-                              streaming={msg.streaming}
-                            />
-                          </div>
-                        )}
-
-                        {/* step 气泡内的文件请求 */}
-                        {msg.fileRequests && msg.fileRequests.length > 0 && (
-                          <div className="flex flex-col gap-2 pl-1">
-                            {msg.fileRequests.map(freq => (
-                              <FileRequestCard
-                                key={freq.id}
-                                request={freq}
-                                onUpload={(file) => {
-                                  setMessages(prev => prev.map(m =>
-                                    m.id === msg.id
-                                      ? { ...m, fileRequests: m.fileRequests?.map(r => r.id === freq.id ? { ...r, fulfilled: true } : r) }
-                                      : m
-                                  ));
-                                  const reader = new FileReader();
-                                  const isImage = file.type.startsWith('image/');
-                                  reader.onload = (ev) => {
-                                    const content = ev.target?.result as string;
-                                    const att: Attachment = { id: `att-${Date.now()}`, name: file.name, type: isImage ? 'image' : 'text', mimeType: file.type, content, size: file.size };
-                                    const attText = isImage ? `\n\n[图片附件: ${file.name}]\n${content}` : `\n\n[文件附件: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
-                                    handleSend(`已上传文件 ${file.name}，请继续执行任务。${attText}`, false);
-                                  };
-                                  if (isImage) reader.readAsDataURL(file);
-                                  else reader.readAsText(file);
-                                }}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <StepBubble
+                      key={msg.id}
+                      msg={msg}
+                      onUploadFile={(msgId, reqId, file) => {
+                        setMessages(prev => prev.map(m =>
+                          m.id === msgId
+                            ? { ...m, fileRequests: m.fileRequests?.map(r => r.id === reqId ? { ...r, fulfilled: true } : r) }
+                            : m
+                        ));
+                        const reader = new FileReader();
+                        const isImage = file.type.startsWith('image/');
+                        reader.onload = (ev) => {
+                          const content = ev.target?.result as string;
+                          const att: Attachment = { id: `att-${Date.now()}`, name: file.name, type: isImage ? 'image' : 'text', mimeType: file.type, content, size: file.size };
+                          const attText = isImage ? `\n\n[图片附件: ${file.name}]\n${content}` : `\n\n[文件附件: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
+                          handleSend(`已上传文件 ${file.name}，请继续执行任务。${attText}`, false);
+                        };
+                        if (isImage) reader.readAsDataURL(file);
+                        else reader.readAsText(file);
+                      }}
+                    />
                   );
                 }
 
@@ -1690,6 +1671,126 @@ function RepairChecklist({ content }: { content: string }) {
             修复完成后，回复「重新构建」即可自动触发 CI 验证。
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── StepBubble：任务步骤气泡，完成后自动折叠工具列表 ─────────────────────────
+interface StepBubbleProps {
+  msg: Message;
+  onUploadFile: (msgId: string, reqId: string, file: File) => void;
+}
+
+function StepBubble({ msg, onUploadFile }: StepBubbleProps) {
+  const hasTools = msg.inlineTools && msg.inlineTools.length > 0;
+  const toolsDone = msg.inlineTools?.every(t => t.status !== 'running') ?? true;
+  const hasError = msg.inlineTools?.some(t => t.status === 'fail') ?? false;
+  const stepDone = !msg.streaming && toolsDone;
+
+  // 完成时默认折叠，流式中默认展开
+  const [collapsed, setCollapsed] = useState(false);
+
+  // 步骤完成后自动折叠（延迟 600ms 让用户感知到完成状态）
+  useEffect(() => {
+    if (stepDone) {
+      const t = setTimeout(() => setCollapsed(true), 600);
+      return () => clearTimeout(t);
+    } else {
+      setCollapsed(false);
+    }
+  }, [stepDone]);
+
+  const successCount = msg.inlineTools?.filter(t => t.status === 'success').length ?? 0;
+  const totalCount = msg.inlineTools?.length ?? 0;
+
+  return (
+    <div className="flex gap-2.5 flex-row">
+      {/* 状态指示列 */}
+      <div className="flex flex-col items-center shrink-0 mt-1">
+        <div className={cn(
+          'w-6 h-6 rounded-full flex items-center justify-center border transition-colors',
+          msg.streaming
+            ? 'bg-primary/10 border-primary/30'
+            : hasError
+              ? 'bg-destructive/10 border-destructive/30'
+              : 'bg-green-500/10 border-green-500/30'
+        )}>
+          {msg.streaming
+            ? <Loader2 className="w-3 h-3 text-primary animate-spin" />
+            : hasError
+              ? <XCircle className="w-3 h-3 text-destructive" />
+              : <CheckCircle2 className="w-3 h-3 text-green-500" />}
+        </div>
+        {/* 连接线 */}
+        <div className="w-px flex-1 min-h-[8px] bg-border/40 mt-1" />
+      </div>
+
+      <div className="flex flex-col gap-1 flex-1 min-w-0 pb-1">
+        {/* 标题行 —— 整行可点击折叠/展开（仅有工具时可折叠） */}
+        <button
+          onClick={() => hasTools && setCollapsed(v => !v)}
+          disabled={!hasTools || msg.streaming}
+          className={cn(
+            'flex items-center gap-2 rounded-xl px-3 py-2 border text-sm min-w-0 w-full text-left transition-colors',
+            msg.streaming
+              ? 'bg-primary/5 border-primary/20 cursor-default'
+              : hasError
+                ? 'bg-destructive/5 border-destructive/20 hover:bg-destructive/8 cursor-pointer'
+                : hasTools
+                  ? 'bg-muted/40 border-border/50 hover:bg-muted/70 cursor-pointer'
+                  : 'bg-muted/40 border-border/50 cursor-default'
+          )}
+        >
+          <span className={cn(
+            'font-medium text-xs truncate flex-1',
+            msg.streaming ? 'text-primary' : hasError ? 'text-destructive' : 'text-foreground/70'
+          )}>
+            {msg.stepTitle ?? '执行中'}
+          </span>
+
+          {/* 右侧状态区 */}
+          {msg.streaming && (
+            <span className="text-[10px] text-primary/70 shrink-0 animate-pulse">进行中…</span>
+          )}
+          {stepDone && !hasError && hasTools && (
+            <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0 font-mono">
+              {successCount}/{totalCount}
+            </span>
+          )}
+          {hasError && (
+            <span className="text-[10px] text-destructive shrink-0">失败</span>
+          )}
+          {/* 折叠箭头（完成后才显示） */}
+          {stepDone && hasTools && (
+            collapsed
+              ? <ChevronRight className="w-3 h-3 text-muted-foreground/60 shrink-0 ml-0.5" />
+              : <ChevronDown className="w-3 h-3 text-muted-foreground/60 shrink-0 ml-0.5" />
+          )}
+        </button>
+
+        {/* 工具调用列表（折叠时隐藏） */}
+        {hasTools && !collapsed && (
+          <div className="pl-1">
+            <InlineActivityPanel
+              inlineTools={msg.inlineTools}
+              streaming={msg.streaming}
+            />
+          </div>
+        )}
+
+        {/* 文件请求 */}
+        {msg.fileRequests && msg.fileRequests.length > 0 && (
+          <div className="flex flex-col gap-2 pl-1">
+            {msg.fileRequests.map(freq => (
+              <FileRequestCard
+                key={freq.id}
+                request={freq}
+                onUpload={(file) => onUploadFile(msg.id, freq.id, file)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
