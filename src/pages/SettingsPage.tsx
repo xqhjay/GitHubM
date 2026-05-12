@@ -18,6 +18,8 @@ import {
   Loader2,
   User,
   Palette,
+  Mail,
+  MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -590,6 +592,50 @@ export default function SettingsPage() {
           <p>GitHub 管理器 v{import.meta.env.VITE_APP_VERSION || '1.0.local'}</p>
           <p>基于 GitHub REST API v2022-11-28</p>
           <p>使用 React + TypeScript + Tailwind CSS 构建</p>
+        </div>
+      </div>
+
+      {/* 作者 */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-foreground mb-4">作者</h2>
+        <div className="flex items-start gap-4">
+          {/* 头像区域 */}
+          <div className="relative shrink-0">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border-2 border-primary/20 flex items-center justify-center">
+              <span className="text-lg select-none">🦖</span>
+            </div>
+            {/* 在线小圆点 */}
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
+          </div>
+
+          {/* 信息区 */}
+          <div className="flex-1 min-w-0 space-y-2">
+            <div>
+              <p className="text-sm font-semibold text-foreground leading-tight text-balance">水怪</p>
+              <p className="text-xs text-muted-foreground mt-0.5 text-pretty">MT 论坛练习时长两年半的水怪</p>
+            </div>
+
+            {/* 标签 */}
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary bg-primary/10 border border-primary/20 rounded-full px-2.5 py-0.5">
+                <MessageCircle className="w-3 h-3 shrink-0" />MT 论坛
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground bg-muted border border-border rounded-full px-2.5 py-0.5">
+                练习时长两年半
+              </span>
+            </div>
+
+            {/* 邮箱 */}
+            <div className="flex items-center gap-2 pt-0.5">
+              <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <a
+                href="mailto:3214931827@qq.com"
+                className="text-xs text-muted-foreground hover:text-primary transition-colors underline underline-offset-2 decoration-border hover:decoration-primary truncate"
+              >
+                3214931827@qq.com
+              </a>
+            </div>
+          </div>
         </div>
       </div>
 
