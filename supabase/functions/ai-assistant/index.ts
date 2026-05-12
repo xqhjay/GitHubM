@@ -1193,14 +1193,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await sendTyped({ type: "think_chunk", content: chunk });
       };
 
-      try {
-        assistantText = await callLLM(modelConfig, platformKey, fullMessages, onThinkingChunk, heartbeat);
-        if (thinkingStarted) await sendTyped({ type: "think_end" });
-      } catch (e) {
-        await sendChunk(`\n❌ AI 调用失败：${(e as Error).message}`);
-        batchDone = true;
-        break;
+      // ── LLM 调用重试（最多 3 次，指数退避 2s/4s/6s）────────────────────────
+      let llmRetry = 0;
+      const MAX_LLM_RETRIES = 3;
+      while (true) {
+        try {
+          assistantText = await callLLM(modelConfig, platformKey, fullMessages, onThinkingChunk, heartbeat);
+          if (thinkingStarted) await sendTyped({ type: "think_end" });
+          break; // 成功
+        } catch (e) {
+          llmRetry++;
+          if (llmRetry < MAX_LLM_RETRIES) {
+            await sendChunk(`\n⚠️ AI 调用失败（${(e as Error).message.slice(0, 100)}），${llmRetry}/${MAX_LLM_RETRIES} 次重试...`);
+            await new Promise(res => setTimeout(res, llmRetry * 2000));
+            continue;
+          }
+          await sendChunk(`\n❌ AI 调用失败（已重试 ${MAX_LLM_RETRIES} 次）：${(e as Error).message}`);
+          batchDone = true;
+          break;
+        }
       }
+      if (llmRetry >= MAX_LLM_RETRIES) break; // 所有重试都失败
 
       // ── 预处理：统一剥除 markdown 代码围栏 ────────────────────────────────────
       // LLM 有时会用 ```json ... ``` 包裹 PLAN/工具 JSON，导致所有正则失效
