@@ -5,7 +5,6 @@ import { getRepoBranches } from '@/services/github';
 import { sendStreamRequest } from '@/lib/sse';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
   Bot, User, Send, Square, Trash2, Settings,
@@ -73,15 +72,12 @@ export default function AiAssistantPage() {
   }, [input]);
 
   // 自动滚动到底部
-  // ScrollArea 的 viewport 是 [data-radix-scroll-area-viewport]，需要直接滚动它
+  // 直接操作原生 div（不再经过 Radix ScrollArea 的 viewport 选择器）
   useEffect(() => {
-    const viewport = scrollAreaRef.current?.querySelector(
-      '[data-radix-scroll-area-viewport]'
-    ) as HTMLElement | null;
-    if (viewport) {
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    const el = scrollAreaRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     } else {
-      // 降级：直接 scrollIntoView
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
@@ -499,57 +495,60 @@ export default function AiAssistantPage() {
         {/* ── 聊天区域 ── */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-          {/* 消息列表 */}
-          <div ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-            <ScrollArea className="flex-1 min-h-0 min-w-0 w-full">
-              <div className="flex flex-col gap-4 p-4 pb-2 w-full min-w-0">
-                {messages.map((msg, idx) => {
-                  const isLastAi = idx === lastAiIdx;
-                  // 工具调用行（以 🔧 开头）单独渲染成紧凑的状态条
-                  if (msg.role === 'assistant' && msg.content.startsWith('🔧 **正在执行')) {
-                    return null; // 工具调用 hint 已内嵌在 AI 回复流中，不单独渲染
-                  }
-                  return (
-                    /* 消息行：flex 行方向，头像 shrink-0，内容 flex-1 min-w-0 */
-                    <div key={msg.id} className={cn('flex gap-2.5 w-full min-w-0', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
+          {/* 消息列表：原生 div 替代 ScrollArea，避免 Android WebView 中 Radix 内部宽度偏差截断文字 */}
+          <div
+            ref={scrollAreaRef}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            <div className="flex flex-col gap-4 p-4 pb-2">
+              {messages.map((msg, idx) => {
+                const isLastAi = idx === lastAiIdx;
+                // 工具调用行（以 🔧 开头）单独渲染成紧凑的状态条
+                if (msg.role === 'assistant' && msg.content.startsWith('🔧 **正在执行')) {
+                  return null; // 工具调用 hint 已内嵌在 AI 回复流中，不单独渲染
+                }
+                return (
+                  /* 消息行：flex 行方向，头像 shrink-0，内容 min-w-0（flex-1 会拉伸到父宽度减头像宽度） */
+                  <div key={msg.id} className={cn('flex gap-2.5', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
+                    <div className={cn(
+                      'w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
+                      msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
+                    )}>
+                      {msg.role === 'user'
+                        ? <User className="w-3.5 h-3.5" />
+                        : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </div>
+                    {/*
+                      min-w-0 + flex-1：收缩到可用宽度（父宽度 - 头像 - gap）
+                      不加 overflow-hidden：避免在 Android WebView 中截断正常换行的文字
+                      父级 overflow-x-hidden 已负责阻止整体横向溢出
+                    */}
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      {/* 气泡：不加 overflow-hidden，让文字自然换行；代码块在内部自行处理横向滚动 */}
                       <div className={cn(
-                        'w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                        msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
+                        'rounded-2xl px-4 py-3 text-sm min-w-0',
+                        msg.role === 'user'
+                          ? 'bg-primary text-primary-foreground rounded-tr-sm'
+                          : 'bg-muted/60 border border-border text-foreground rounded-tl-sm',
+                        !msg.streaming && msg.content.length > 600
+                          ? 'max-h-[60vh] overflow-y-auto'
+                          : ''
                       )}>
                         {msg.role === 'user'
-                          ? <User className="w-3.5 h-3.5" />
-                          : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
-                      </div>
-                      {/*
-                        关键：flex-1 + min-w-0 让此列收缩到剩余空间内，
-                        overflow-hidden 阻止任何子元素（代码块等）撑出父容器宽度。
-                        Android WebView 对 style={{ maxWidth }} 支持较差，改用纯 Tailwind。
-                      */}
-                      <div className="flex flex-col gap-1 flex-1 min-w-0 overflow-hidden">
-                        {/* 气泡：overflow-hidden 阻止内部代码块撑出气泡边界 */}
-                        <div className={cn(
-                          'rounded-2xl px-4 py-3 text-sm w-full min-w-0 overflow-hidden',
-                          msg.role === 'user'
-                            ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                            : 'bg-muted/60 border border-border text-foreground rounded-tl-sm',
-                          !msg.streaming && msg.content.length > 600
-                            ? 'max-h-[60vh] overflow-y-auto'
-                            : ''
-                        )}>
-                          {msg.role === 'user'
-                            ? <p className="whitespace-pre-wrap break-words break-all min-w-0 w-full">{msg.content}</p>
-                            : (
-                              <div className="min-w-0 w-full overflow-hidden">
-                                {msg.content ? renderMarkdown(msg.content) : (
-                                  msg.streaming
-                                    ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
-                                    : <span className="text-muted-foreground text-sm">…</span>
-                                )}
-                                {msg.streaming && msg.content && (
-                                  <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
-                                )}
-                              </div>
-                            )}
+                          ? <p className="whitespace-pre-wrap break-words break-all">{msg.content}</p>
+                          : (
+                            <div className="min-w-0">
+                              {msg.content ? renderMarkdown(msg.content) : (
+                                msg.streaming
+                                  ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
+                                  : <span className="text-muted-foreground text-sm">…</span>
+                              )}
+                              {msg.streaming && msg.content && (
+                                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
+                              )}
+                            </div>
+                          )}
                         </div>
                         {/* 操作栏（AI 消息完成后） */}
                         {msg.role === 'assistant' && !msg.streaming && msg.content && (
@@ -585,8 +584,7 @@ export default function AiAssistantPage() {
                 })}
                 <div ref={bottomRef} />
               </div>
-            </ScrollArea>
-          </div>
+            </div>
 
           {/* 快捷指令（首次入场显示） */}
           {messages.length <= 1 && !isStreaming && (
