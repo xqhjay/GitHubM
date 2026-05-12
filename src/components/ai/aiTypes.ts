@@ -27,7 +27,7 @@ export interface ChatSessionMessage {
 
 // ── 消息类型 ────────────────────────────────────────────────────────────────────
 
-/** 内联工具调用条目（在气泡内展示） */
+/** 内联工具调用条目（在气泡内展示，兼容旧代码） */
 export interface InlineTool {
   id: string;
   tool: string;
@@ -89,15 +89,31 @@ export interface Message {
   fileRequests?: FileRequest[];
   /**
    * 气泡类型：
-   *  - 'step'   = 每个任务步骤执行气泡（含工具调用列表）
-   *  - 'answer' = 最终回答气泡（含 Markdown 正文）
-   *  - undefined = 普通消息（无 plan 时保持单气泡行为）
+   *  - 'step'     = 每个任务步骤标题气泡（精简标题行）
+   *  - 'answer'   = 最终回答气泡（含 Markdown 正文）
+   *  - 'thinking' = AI 思考过程气泡（可折叠）
+   *  - 'tool'     = 单个工具调用气泡（含结果）
+   *  - undefined  = 普通消息（无 plan 时保持单气泡行为）
    */
-  bubbleType?: 'step' | 'answer';
+  bubbleType?: 'step' | 'answer' | 'thinking' | 'tool';
   /** 步骤标题，bubbleType==='step' 时展示 */
   stepTitle?: string;
   /** 关联的步骤 ID */
   stepId?: string;
+  /** 工具调用 ID（bubbleType==='tool' 时使用，用于 tool_end 更新） */
+  toolCallId?: string;
+  /** 工具名称（bubbleType==='tool'） */
+  toolName?: string;
+  /** 工具标签（bubbleType==='tool'） */
+  toolLabel?: string;
+  /** 工具提示（bubbleType==='tool'） */
+  toolHint?: string;
+  /** 工具调用状态（bubbleType==='tool'） */
+  toolStatus?: 'running' | 'success' | 'fail';
+  /** 工具耗时 ms（bubbleType==='tool'） */
+  toolElapsedMs?: number;
+  /** 工具返回结果摘要（bubbleType==='tool'，可折叠） */
+  toolResult?: string;
 }// ── 工具调用记录类型 ────────────────────────────────────────────────────────────
 
 export interface ToolHistoryItem {
