@@ -10,7 +10,7 @@ import {
   Bot, User, Send, Square, Trash2, Settings,
   Sparkles, AlertCircle,
   RefreshCw, Plus, GitPullRequest, History, ArrowLeft, Loader2,
-  Zap, FolderSearch, PanelRight, Wrench, ListChecks, Clock, WifiOff,
+  Zap, FolderSearch, PanelRight, Wrench, ListChecks, Clock, WifiOff, CheckCircle2, XCircle,
   Paperclip, X, ImageIcon, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -398,6 +398,20 @@ export default function AiAssistantPage() {
     streamingAiMsgIdRef.current = aiMsg.id;
     networkInterruptedRef.current = false;
 
+    // ── 多气泡状态追踪（闭包内局部变量）────────────────────────────────────────
+    // 初始气泡 id（等待/planning 占位或简单回答）
+    const initMsgId = aiMsg.id;
+    // 当前正在更新的步骤气泡 id
+    let currentStepBubbleId: string | null = null;
+    // 最终回答气泡 id（content 事件触发后创建）
+    let answerMsgId: string | null = null;
+    // 是否已收到 plan/step 事件（决定是否拆分多气泡）
+    let hasSteps = false;
+    // 本次对话计划步骤（step_start 时查标题用）
+    let planStepsLocal: Array<{ id: string; title: string; desc: string }> = [];
+    // 当前步骤 ID（闭包内，不走 setState 避免异步）
+    let localCurrentStepId: string | null = null;
+
     await sendStreamRequest({
       functionUrl: `${SUPABASE_URL}/functions/v1/ai-assistant`,
       requestBody: reqBody,
@@ -408,149 +422,186 @@ export default function AiAssistantPage() {
         if (!chunk) return;
 
         switch (chunk.type) {
-          case 'content':
+          case 'content': {
+            // ── 首次 content：若已有步骤气泡则新建 answer 气泡，否则复用初始气泡 ──
+            if (answerMsgId === null) {
+              if (hasSteps) {
+                // 新建 answer 气泡，追加到消息列表末尾
+                const newId = `ans-${Date.now()}`;
+                answerMsgId = newId;
+                streamingAiMsgIdRef.current = newId;
+                const answerMsg: Message = { id: newId, role: 'assistant', content: '', streaming: true, bubbleType: 'answer' };
+                setMessages(prev => [...prev, answerMsg]);
+              } else {
+                // 没有步骤时直接复用初始气泡
+                answerMsgId = initMsgId;
+              }
+            }
             accumulated += chunk.content;
-            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: accumulated } : m));
+            const aid = answerMsgId;
+            setMessages(prev => prev.map(m => m.id === aid ? { ...m, content: accumulated } : m));
             break;
-          case 'think_start':
+          }
+          case 'think_start': {
             currentThinking = '';
-            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, thinkingContent: '', thinkingDone: false } : m));
+            // thinking 跟随当前 answer 气泡（answer 气泡未建时跟 init 气泡）
+            const tid = answerMsgId ?? initMsgId;
+            setMessages(prev => prev.map(m => m.id === tid ? { ...m, thinkingContent: '', thinkingDone: false } : m));
             break;
-          case 'think_chunk':
+          }
+          case 'think_chunk': {
             currentThinking += chunk.content;
-            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, thinkingContent: currentThinking } : m));
+            const tid = answerMsgId ?? initMsgId;
+            setMessages(prev => prev.map(m => m.id === tid ? { ...m, thinkingContent: currentThinking } : m));
             break;
-          case 'think_end':
-            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, thinkingDone: true } : m));
+          }
+          case 'think_end': {
+            const tid = answerMsgId ?? initMsgId;
+            setMessages(prev => prev.map(m => m.id === tid ? { ...m, thinkingDone: true } : m));
             break;
-          case 'tool_start':
+          }
+          case 'tool_start': {
             setToolHistory(prev => [...prev, {
-              id: chunk.id,
-              tool: chunk.tool,
-              label: chunk.label,
-              hint: chunk.hint,
-              status: 'running',
-              startedAt: Date.now()
+              id: chunk.id, tool: chunk.tool,
+              label: chunk.label, hint: chunk.hint,
+              status: 'running', startedAt: Date.now(),
             }]);
-            // 自动展开侧边面板：仅桌面端（md+），手机端不自动弹出以免遮挡对话区
             if (window.innerWidth >= 768) setShowToolHistory(true);
-            // ── 同步写入气泡内联 ──
+            // 工具写入当前步骤气泡（若有），否则写入初始气泡
+            const tid = currentStepBubbleId ?? initMsgId;
             setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
-              const newTool: InlineTool = {
-                id: chunk.id, tool: chunk.tool,
-                label: chunk.label, hint: chunk.hint,
-                status: 'running',
-              };
+              if (m.id !== tid) return m;
+              const newTool: InlineTool = { id: chunk.id, tool: chunk.tool, label: chunk.label, hint: chunk.hint, status: 'running' };
               return { ...m, inlineTools: [...(m.inlineTools ?? []), newTool] };
             }));
             break;
-          case 'tool_end':
-            setToolHistory(prev => prev.map(item => item.id === chunk.id ? {
-              ...item,
-              status: chunk.status,
-              result: chunk.result,
-              elapsedMs: chunk.elapsedMs
-            } : item));
-            // ── 同步写入气泡内联 ──
+          }
+          case 'tool_end': {
+            setToolHistory(prev => prev.map(item => item.id === chunk.id
+              ? { ...item, status: chunk.status, result: chunk.result, elapsedMs: chunk.elapsedMs }
+              : item
+            ));
+            const tid = currentStepBubbleId ?? initMsgId;
             setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
+              if (m.id !== tid) return m;
               return {
                 ...m,
                 inlineTools: (m.inlineTools ?? []).map(t =>
-                  t.id === chunk.id
-                    ? { ...t, status: chunk.status, result: chunk.result, elapsedMs: chunk.elapsedMs }
-                    : t
+                  t.id === chunk.id ? { ...t, status: chunk.status, result: chunk.result, elapsedMs: chunk.elapsedMs } : t
                 ),
               };
             }));
             break;
-          case 'plan':
-            // 收到任务计划：初始化所有步骤为 pending，自动切换到计划 Tab
+          }
+          case 'plan': {
+            // 收到计划：初始化侧边面板状态
+            hasSteps = true;
+            planStepsLocal = chunk.steps;
             setTaskPlanSteps(chunk.steps);
             setStepStatuses(Object.fromEntries(chunk.steps.map(s => [s.id, 'pending' as StepStatus])));
             setStepRetryCounts({});
             setCurrentStepId(null);
             setSidePanelTab('plan');
-            // 自动展开侧边面板：仅桌面端（md+），手机端不自动弹出以免遮挡对话区
             if (window.innerWidth >= 768) setShowToolHistory(true);
-            // ── 同步写入气泡内联 ──
+            // 初始气泡显示计划概览（折叠列表）
             setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
-              const inlinePlan: InlineStep[] = chunk.steps.map(s => ({
-                id: s.id, title: s.title, desc: s.desc, status: 'pending',
-              }));
-              return { ...m, inlinePlan };
+              if (m.id !== initMsgId) return m;
+              const inlinePlan: InlineStep[] = chunk.steps.map(s => ({ id: s.id, title: s.title, desc: s.desc, status: 'pending' }));
+              return { ...m, inlinePlan, bubbleType: 'step', stepTitle: '任务规划' };
             }));
             break;
-          case 'step_start':
+          }
+          case 'step_start': {
+            hasSteps = true;
+            localCurrentStepId = chunk.stepId;
             setCurrentStepId(chunk.stepId);
             setStepStatuses(prev => ({ ...prev, [chunk.stepId]: 'running' }));
-            // ── 同步写入气泡内联 ──
-            setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
-              return {
-                ...m,
-                inlinePlan: (m.inlinePlan ?? []).map(s =>
-                  s.id === chunk.stepId ? { ...s, status: 'running' } : s
-                ),
+
+            const stepInfo = planStepsLocal.find(s => s.id === chunk.stepId);
+            const stepTitle = stepInfo?.title ?? `步骤 ${chunk.stepId}`;
+
+            // 首个 step：判断是否可复用初始气泡
+            const reuseInit = !currentStepBubbleId && !answerMsgId;
+            if (reuseInit) {
+              // 将初始气泡转换为第一个步骤气泡
+              currentStepBubbleId = initMsgId;
+              setMessages(prev => prev.map(m =>
+                m.id === initMsgId
+                  ? { ...m, bubbleType: 'step', stepTitle, stepId: chunk.stepId, inlinePlan: undefined, streaming: true }
+                  : m
+              ));
+            } else {
+              // 关闭上一个步骤气泡
+              if (currentStepBubbleId) {
+                const prevId = currentStepBubbleId;
+                setMessages(prev => prev.map(m => m.id === prevId ? { ...m, streaming: false } : m));
+              }
+              // 新建步骤气泡
+              const newId = `step-${chunk.stepId}-${Date.now()}`;
+              currentStepBubbleId = newId;
+              const stepMsg: Message = {
+                id: newId, role: 'assistant', content: '',
+                streaming: true, bubbleType: 'step',
+                stepTitle, stepId: chunk.stepId,
               };
-            }));
+              setMessages(prev => [...prev, stepMsg]);
+            }
             break;
-          case 'step_retry':
+          }
+          case 'step_retry': {
             setStepStatuses(prev => ({ ...prev, [chunk.stepId]: 'running' }));
             setStepRetryCounts(prev => ({ ...prev, [chunk.stepId]: chunk.retryCount }));
             setCurrentStepId(chunk.stepId);
-            // ── 同步写入气泡内联 ──
-            setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
-              return {
-                ...m,
-                inlinePlan: (m.inlinePlan ?? []).map(s =>
-                  s.id === chunk.stepId ? { ...s, status: 'running', retryCount: chunk.retryCount } : s
-                ),
-              };
-            }));
+            localCurrentStepId = chunk.stepId;
+            // 在当前步骤气泡上更新重试徽章
+            const tid = currentStepBubbleId ?? initMsgId;
+            setMessages(prev => prev.map(m =>
+              m.id === tid ? { ...m, inlineTools: m.inlineTools } : m
+            ));
             break;
+          }
+          case 'step_end': {
+            setStepStatuses(prev => ({ ...prev, [chunk.stepId]: chunk.status === 'error' ? 'error' : 'done' }));
+            if (chunk.status !== 'error') {
+              setCurrentStepId(null);
+              localCurrentStepId = null;
+            }
+            // 关闭当前步骤气泡的 streaming
+            if (currentStepBubbleId) {
+              const sid = currentStepBubbleId;
+              setMessages(prev => prev.map(m => m.id === sid ? { ...m, streaming: false } : m));
+              currentStepBubbleId = null;
+            }
+            break;
+          }
           case 'status_info':
             toast.info(chunk.message, { duration: 4000 });
             break;
           case 'status_warning':
             toast.warning(chunk.message, { duration: 5000 });
             break;
-          case 'file_request':
-            // AI 请求用户上传文件：将请求追加到当前 AI 消息的 fileRequests 列表
+          case 'file_request': {
+            // 文件请求写入当前活跃气泡
+            const tid = answerMsgId ?? currentStepBubbleId ?? initMsgId;
             setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
+              if (m.id !== tid) return m;
               const req = { id: chunk.id, filename: chunk.filename, description: chunk.description, mime_types: chunk.mime_types, fulfilled: false };
               return { ...m, fileRequests: [...(m.fileRequests ?? []), req] };
             }));
             break;
-          case 'step_end':
-            setStepStatuses(prev => ({ ...prev, [chunk.stepId]: chunk.status === 'error' ? 'error' : 'done' }));
-            if (chunk.status !== 'error') setCurrentStepId(null);
-            // ── 同步写入气泡内联 ──
-            setMessages(prev => prev.map(m => {
-              if (m.id !== aiMsg.id) return m;
-              return {
-                ...m,
-                inlinePlan: (m.inlinePlan ?? []).map(s =>
-                  s.id === chunk.stepId
-                    ? { ...s, status: chunk.status === 'error' ? 'error' : 'done' }
-                    : s
-                ),
-              };
-            }));
-            break;
+          }
         }
       },
       onComplete: async () => {
         networkInterruptedRef.current = false;
         setIsNetworkInterrupted(false);
         streamingAiMsgIdRef.current = null;
-        setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, streaming: false } : m));
+        // 关闭所有仍在 streaming 的 AI 气泡
+        setMessages(prev => prev.map(m =>
+          (m.role === 'assistant' && m.streaming) ? { ...m, streaming: false } : m
+        ));
         setIsStreaming(false);
-        // 持久化本轮新消息
+        // 持久化：只保存最终回答文本（answerMsgId 对应的气泡内容）
         const newMsgs = isRegen
           ? [{ role: 'assistant', content: accumulated }]
           : [{ role: 'user', content: userText }, { role: 'assistant', content: accumulated }];
@@ -559,7 +610,6 @@ export default function AiAssistantPage() {
       },
       onError: (err) => {
         const isUserAbort = abortRef.current?.signal.aborted;
-        // 判断是否为网络/超时导致的中断（非用户主动 Stop）
         const isNetworkDrop = !isUserAbort && (
           err.message.includes('网络') ||
           err.message.includes('Failed to fetch') ||
@@ -568,17 +618,17 @@ export default function AiAssistantPage() {
           err.message.includes('timeout') ||
           err.message.includes('中断')
         );
+        // 错误写入最后一个活跃气泡
+        const errTargetId = answerMsgId ?? currentStepBubbleId ?? initMsgId;
         if (isNetworkDrop) {
-          // 标记为网络中断，页面切回前台时提示重连
           networkInterruptedRef.current = true;
           setIsNetworkInterrupted(true);
           setMessages(prev => prev.map(m =>
-            m.id === aiMsg.id
+            m.id === errTargetId
               ? { ...m, content: accumulated + (accumulated ? '\n\n' : '') + `⚠️ 连接中断：${err.message}`, streaming: false }
-              : m
+              : (m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m)
           ));
           setIsStreaming(false);
-          // 若当前页面仍在前台，立即提示
           if (!document.hidden) {
             networkInterruptedRef.current = false;
             toast.warning(`连接中断：${err.message}`, {
@@ -592,7 +642,9 @@ export default function AiAssistantPage() {
           }
         } else {
           setMessages(prev => prev.map(m =>
-            m.id === aiMsg.id ? { ...m, content: `❌ ${err.message}`, streaming: false } : m
+            m.id === errTargetId
+              ? { ...m, content: `❌ ${err.message}`, streaming: false }
+              : (m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m)
           ));
           setIsStreaming(false);
           if (!isUserAbort) toast.error(err.message, { duration: 5000 });
@@ -778,7 +830,7 @@ export default function AiAssistantPage() {
 
   // ── 对话步骤 ─────────────────────────────────────────────────────────────
 
-  const lastAiIdx = [...messages].map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).pop() ?? -1;
+  const lastAiIdx = [...messages].map((m, i) => (m.role === 'assistant' && m.bubbleType !== 'step') ? i : -1).filter(i => i !== -1).pop() ?? -1;
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] md:h-[calc(100dvh-1rem)] overflow-hidden">
@@ -877,163 +929,240 @@ export default function AiAssistantPage() {
             className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <div className="flex flex-col gap-4 p-4 pb-2">
+            <div className="flex flex-col gap-3 p-4 pb-2">
               {messages.map((msg, idx) => {
                 const isLastAi = idx === lastAiIdx;
-                // 工具调用行（以 🔧 开头）单独渲染成紧凑的状态条
-                if (msg.role === 'assistant' && msg.content.startsWith('🔧 **正在执行')) {
-                  return null; // 工具调用 hint 已内嵌在 AI 回复流中，不单独渲染
-                }
-                return (
-                  /* 消息行：flex 行方向，头像 shrink-0，内容 min-w-0（flex-1 会拉伸到父宽度减头像宽度） */
-                  <div key={msg.id} className={cn('flex gap-2.5', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                    <div className={cn(
-                      'w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                      msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
-                    )}>
-                      {msg.role === 'user'
-                        ? <User className="w-3.5 h-3.5" />
-                        : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
-                    </div>
-                    {/*
-                      min-w-0 + flex-1：收缩到可用宽度（父宽度 - 头像 - gap）
-                      不加 overflow-hidden：避免在 Android WebView 中截断正常换行的文字
-                      父级 overflow-x-hidden 已负责阻止整体横向溢出
-                    */}
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      {/* 气泡：不加 overflow-hidden，让文字自然换行；代码块在内部自行处理横向滚动 */}
-                      <div className={cn(
-                        'rounded-2xl px-4 py-3 text-sm min-w-0',
-                        msg.role === 'user'
-                          ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                          : 'bg-muted/60 border border-border text-foreground rounded-tl-sm',
-                        !msg.streaming && msg.content.length > 600
-                          ? 'max-h-[60vh] overflow-y-auto'
-                          : ''
-                      )}>
-                        {msg.role === 'user'
-                          ? (
-                            <div className="min-w-0">
-                              <p className="whitespace-pre-wrap break-words break-all">{msg.content}</p>
-                              {/* 附件预览 */}
-                              {msg.attachments && msg.attachments.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                  {msg.attachments.map(att => (
-                                    <div key={att.id} className="flex items-center gap-1 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/90">
-                                      {att.type === 'image'
-                                        ? <img src={att.content} alt={att.name} className="w-5 h-5 rounded object-cover shrink-0" />
-                                        : <FileText className="w-3.5 h-3.5 shrink-0" />
-                                      }
-                                      <span className="truncate max-w-[120px]">{att.name}</span>
-                                    </div>
-                                  ))}
+
+                // ── 用户消息 ─────────────────────────────────────────────────
+                if (msg.role === 'user') {
+                  return (
+                    <div key={msg.id} className="flex gap-2.5 flex-row-reverse">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-primary text-primary-foreground">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex flex-col gap-1 min-w-0 max-w-[85%]">
+                        <div className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm min-w-0 bg-primary text-primary-foreground">
+                          <p className="whitespace-pre-wrap break-words break-all">{msg.content}</p>
+                          {msg.attachments && msg.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {msg.attachments.map(att => (
+                                <div key={att.id} className="flex items-center gap-1 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/90">
+                                  {att.type === 'image'
+                                    ? <img src={att.content} alt={att.name} className="w-5 h-5 rounded object-cover shrink-0" />
+                                    : <FileText className="w-3.5 h-3.5 shrink-0" />}
+                                  <span className="truncate max-w-[120px]">{att.name}</span>
                                 </div>
-                              )}
-                            </div>
-                          )
-                          : (
-                            <div className="min-w-0">
-                              {/* 思考过程显示 */}
-                              {(msg.thinkingContent || (msg.streaming && !msg.thinkingDone)) && (
-                                <ThinkingBlock content={msg.thinkingContent || ''} done={msg.thinkingDone} />
-                              )}
-                              {msg.content ? (
-                                msg.content.includes('## 🔧 修复清单')
-                                  ? <RepairChecklist content={msg.content} />
-                                  : renderMarkdown(msg.content)
-                              ) : (
-                                msg.streaming
-                                  ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
-                                  : <span className="text-muted-foreground text-sm">…</span>
-                              )}
-                              {msg.streaming && msg.content && (
-                                <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
-                              )}
-                              {/* 内联任务进度（气泡内，文本下方；流式结束后默认折叠，由 InlineActivityPanel 内部控制） */}
-                              {(msg.inlinePlan || msg.inlineTools) && (
-                                <InlineActivityPanel
-                                  inlinePlan={msg.inlinePlan}
-                                  inlineTools={msg.inlineTools}
-                                  streaming={msg.streaming}
-                                />
-                              )}
-                              {/* 文件上传请求卡片（AI 调用 request_file 工具时显示） */}
-                              {msg.fileRequests && msg.fileRequests.length > 0 && (
-                                <div className="mt-3 flex flex-col gap-2">
-                                  {msg.fileRequests.map(freq => (
-                                    <FileRequestCard
-                                      key={freq.id}
-                                      request={freq}
-                                      onUpload={(file) => {
-                                        // 标记为已处理
-                                        setMessages(prev => prev.map(m =>
-                                          m.id === msg.id
-                                            ? { ...m, fileRequests: m.fileRequests?.map(r => r.id === freq.id ? { ...r, fulfilled: true } : r) }
-                                            : m
-                                        ));
-                                        // 读取文件内容后作为新用户消息发送
-                                        const reader = new FileReader();
-                                        const isImage = file.type.startsWith('image/');
-                                        reader.onload = (ev) => {
-                                          const content = ev.target?.result as string;
-                                          const att: Attachment = {
-                                            id: `att-${Date.now()}`,
-                                            name: file.name,
-                                            type: isImage ? 'image' : 'text',
-                                            mimeType: file.type,
-                                            content,
-                                            size: file.size,
-                                          };
-                                          const attText = isImage
-                                            ? `\n\n[图片附件: ${file.name}]\n${content}`
-                                            : `\n\n[文件附件: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
-                                          handleSend(`已上传文件 ${file.name}，请继续执行任务。${attText}`, false);
-                                        };
-                                        if (isImage) reader.readAsDataURL(file);
-                                        else reader.readAsText(file);
-                                      }}
-                                    />
-                                  ))}
-                                </div>
-                              )}
+                              ))}
                             </div>
                           )}
                         </div>
-                        {/* 操作栏（AI 消息完成后） */}
-                        {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                          <div className="flex items-center gap-0.5 self-start ml-1">
-                            <CopyButton text={msg.content} />
-                            {isLastAi && (
-                              <button
-                                onClick={handleRegenerate}
-                                disabled={isStreaming}
-                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                                title="重新生成"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {/* 一键提 PR：AI 写过文件后显示 */}
-                            {isLastAi && (msg.content.includes('✅ 文件') || msg.content.includes('✅ 已 patch') || msg.content.includes('✅ 分支')) && (
-                              <button
-                                onClick={() => handleSend(`请帮我从当前分支 \`${selectedBranch}\` 向默认分支提交一个 PR，标题总结刚才的修改内容`)}
-                                disabled={isStreaming}
-                                className="flex items-center gap-1 p-1 px-2 rounded text-xs text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
-                                title="一键提交 PR"
-                              >
-                                <GitPullRequest className="w-3.5 h-3.5" />
-                                提交 PR
-                              </button>
-                            )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // ── AI：step 气泡（工具执行节点）────────────────────────────
+                if (msg.bubbleType === 'step') {
+                  const hasTools = msg.inlineTools && msg.inlineTools.length > 0;
+                  const toolsDone = msg.inlineTools?.every(t => t.status !== 'running') ?? true;
+                  const hasError = msg.inlineTools?.some(t => t.status === 'fail') ?? false;
+                  const stepDone = !msg.streaming && toolsDone;
+
+                  return (
+                    <div key={msg.id} className="flex gap-2.5 flex-row">
+                      {/* 头像：步骤气泡用较小的点状进度指示 */}
+                      <div className="flex flex-col items-center gap-0 shrink-0 mt-1">
+                        <div className={cn(
+                          'w-6 h-6 rounded-full flex items-center justify-center border',
+                          msg.streaming
+                            ? 'bg-primary/10 border-primary/30'
+                            : hasError
+                              ? 'bg-destructive/10 border-destructive/30'
+                              : 'bg-green-500/10 border-green-500/30'
+                        )}>
+                          {msg.streaming
+                            ? <Loader2 className="w-3 h-3 text-primary animate-spin" />
+                            : hasError
+                              ? <XCircle className="w-3 h-3 text-destructive" />
+                              : <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                        </div>
+                        {/* 竖线连接下一个气泡 */}
+                        <div className="w-px flex-1 min-h-[8px] bg-border/40 mt-1" />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-0 pb-1">
+                        {/* 步骤标题行 */}
+                        <div className={cn(
+                          'flex items-center gap-2 rounded-xl px-3 py-2 border text-sm min-w-0 transition-colors',
+                          msg.streaming
+                            ? 'bg-primary/5 border-primary/20'
+                            : hasError
+                              ? 'bg-destructive/5 border-destructive/20'
+                              : 'bg-muted/40 border-border/50'
+                        )}>
+                          <span className={cn(
+                            'font-medium text-xs truncate flex-1',
+                            msg.streaming ? 'text-primary' : hasError ? 'text-destructive' : 'text-foreground/70'
+                          )}>
+                            {msg.stepTitle ?? '执行中'}
+                          </span>
+                          {msg.streaming && (
+                            <span className="text-[10px] text-primary/70 shrink-0 animate-pulse">进行中…</span>
+                          )}
+                          {stepDone && !hasError && hasTools && (
+                            <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0">
+                              {msg.inlineTools!.filter(t => t.status === 'success').length}/{msg.inlineTools!.length} 工具完成
+                            </span>
+                          )}
+                          {hasError && (
+                            <span className="text-[10px] text-destructive shrink-0">失败</span>
+                          )}
+                        </div>
+
+                        {/* 工具调用列表（仅工具，不显示全局计划列表） */}
+                        {hasTools && (
+                          <div className="pl-1">
+                            <InlineActivityPanel
+                              inlineTools={msg.inlineTools}
+                              streaming={msg.streaming}
+                            />
+                          </div>
+                        )}
+
+                        {/* step 气泡内的文件请求 */}
+                        {msg.fileRequests && msg.fileRequests.length > 0 && (
+                          <div className="flex flex-col gap-2 pl-1">
+                            {msg.fileRequests.map(freq => (
+                              <FileRequestCard
+                                key={freq.id}
+                                request={freq}
+                                onUpload={(file) => {
+                                  setMessages(prev => prev.map(m =>
+                                    m.id === msg.id
+                                      ? { ...m, fileRequests: m.fileRequests?.map(r => r.id === freq.id ? { ...r, fulfilled: true } : r) }
+                                      : m
+                                  ));
+                                  const reader = new FileReader();
+                                  const isImage = file.type.startsWith('image/');
+                                  reader.onload = (ev) => {
+                                    const content = ev.target?.result as string;
+                                    const att: Attachment = { id: `att-${Date.now()}`, name: file.name, type: isImage ? 'image' : 'text', mimeType: file.type, content, size: file.size };
+                                    const attText = isImage ? `\n\n[图片附件: ${file.name}]\n${content}` : `\n\n[文件附件: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
+                                    handleSend(`已上传文件 ${file.name}，请继续执行任务。${attText}`, false);
+                                  };
+                                  if (isImage) reader.readAsDataURL(file);
+                                  else reader.readAsText(file);
+                                }}
+                              />
+                            ))}
                           </div>
                         )}
                       </div>
                     </div>
                   );
-                })}
-                <div ref={bottomRef} />
-              </div>
+                }
+
+                // ── AI：answer 气泡 / 普通单气泡 ─────────────────────────────
+                return (
+                  <div key={msg.id} className="flex gap-2.5 flex-row">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-muted border border-border">
+                      <Bot className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <div className={cn(
+                        'rounded-2xl rounded-tl-sm px-4 py-3 text-sm min-w-0 bg-muted/60 border border-border text-foreground',
+                        !msg.streaming && msg.content.length > 600 ? 'max-h-[60vh] overflow-y-auto' : ''
+                      )}>
+                        <div className="min-w-0">
+                          {/* 思考过程 */}
+                          {(msg.thinkingContent || (msg.streaming && !msg.thinkingDone)) && (
+                            <ThinkingBlock content={msg.thinkingContent || ''} done={msg.thinkingDone} />
+                          )}
+                          {/* 正文内容 */}
+                          {msg.content ? (
+                            msg.content.includes('## 🔧 修复清单')
+                              ? <RepairChecklist content={msg.content} />
+                              : renderMarkdown(msg.content)
+                          ) : (
+                            msg.streaming
+                              ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />
+                              : <span className="text-muted-foreground text-sm">…</span>
+                          )}
+                          {msg.streaming && msg.content && (
+                            <span className="inline-block w-1.5 h-4 bg-primary ml-0.5 animate-pulse rounded-sm align-middle" />
+                          )}
+                          {/* 无 step 拆分时的旧式内联面板（兼容简单工具回答） */}
+                          {(msg.inlinePlan || msg.inlineTools) && (
+                            <InlineActivityPanel
+                              inlinePlan={msg.inlinePlan}
+                              inlineTools={msg.inlineTools}
+                              streaming={msg.streaming}
+                            />
+                          )}
+                          {/* 文件请求 */}
+                          {msg.fileRequests && msg.fileRequests.length > 0 && (
+                            <div className="mt-3 flex flex-col gap-2">
+                              {msg.fileRequests.map(freq => (
+                                <FileRequestCard
+                                  key={freq.id}
+                                  request={freq}
+                                  onUpload={(file) => {
+                                    setMessages(prev => prev.map(m =>
+                                      m.id === msg.id
+                                        ? { ...m, fileRequests: m.fileRequests?.map(r => r.id === freq.id ? { ...r, fulfilled: true } : r) }
+                                        : m
+                                    ));
+                                    const reader = new FileReader();
+                                    const isImage = file.type.startsWith('image/');
+                                    reader.onload = (ev) => {
+                                      const content = ev.target?.result as string;
+                                      const att: Attachment = { id: `att-${Date.now()}`, name: file.name, type: isImage ? 'image' : 'text', mimeType: file.type, content, size: file.size };
+                                      const attText = isImage ? `\n\n[图片附件: ${file.name}]\n${content}` : `\n\n[文件附件: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
+                                      handleSend(`已上传文件 ${file.name}，请继续执行任务。${attText}`, false);
+                                    };
+                                    if (isImage) reader.readAsDataURL(file);
+                                    else reader.readAsText(file);
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* 操作栏：仅 answer/普通气泡 */}
+                      {!msg.streaming && msg.content && (
+                        <div className="flex items-center gap-0.5 self-start ml-1">
+                          <CopyButton text={msg.content} />
+                          {isLastAi && (
+                            <button
+                              onClick={handleRegenerate}
+                              disabled={isStreaming}
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                              title="重新生成"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {isLastAi && (msg.content.includes('✅ 文件') || msg.content.includes('✅ 已 patch') || msg.content.includes('✅ 分支')) && (
+                            <button
+                              onClick={() => handleSend(`请帮我从当前分支 \`${selectedBranch}\` 向默认分支提交一个 PR，标题总结刚才的修改内容`)}
+                              disabled={isStreaming}
+                              className="flex items-center gap-1 p-1 px-2 rounded text-xs text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                              title="一键提交 PR"
+                            >
+                              <GitPullRequest className="w-3.5 h-3.5" />
+                              提交 PR
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={bottomRef} />
             </div>
+          </div>
 
           {/* 快捷指令（首次入场显示） */}
           {messages.length <= 1 && !isStreaming && (
