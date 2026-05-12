@@ -1046,92 +1046,122 @@ export default function AiAssistantPage() {
           </div>
         </div>
 
-        {/* ── 文件浏览器侧边面板 ── */}
+        {/* ── 文件浏览器侧边面板 ──
+            手机端：fixed 全屏遮罩（不挤压对话区）
+            桌面端：inline w-56 紧贴右侧                   */}
         {showFileBrowser && selectedRepo && (
-          <div className="w-56 shrink-0 min-h-0 flex flex-col border-l border-border overflow-hidden">
-            <FileBrowserPanel
-              owner={selectedRepo.owner.login}
-              repo={selectedRepo.name}
-              branch={selectedBranch}
-              onInsert={handleFileBrowserInsert}
-              onClose={() => setShowFileBrowser(false)}
+          <>
+            {/* 手机端半透明遮罩（点击关闭） */}
+            <div
+              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              onClick={() => setShowFileBrowser(false)}
             />
-          </div>
+            {/* 面板本体：手机 fixed right 抽屉，桌面 inline */}
+            <div className={cn(
+              'flex flex-col overflow-hidden border-border bg-background',
+              // 手机：从右侧滑出，不压缩对话区
+              'fixed inset-y-0 right-0 z-50 w-[85%] max-w-xs shadow-2xl border-l',
+              // 桌面：回归原来的内联布局
+              'md:static md:w-56 md:shrink-0 md:min-h-0 md:shadow-none md:z-auto'
+            )}>
+              <FileBrowserPanel
+                owner={selectedRepo.owner.login}
+                repo={selectedRepo.name}
+                branch={selectedBranch}
+                onInsert={handleFileBrowserInsert}
+                onClose={() => setShowFileBrowser(false)}
+              />
+            </div>
+          </>
         )}
 
-        {/* ── 工具调用 & 任务计划 侧边面板（Tab 切换） ── */}
+        {/* ── 工具调用 & 任务计划 侧边面板（Tab 切换）──
+            手机端：fixed 全屏遮罩（不挤压对话区）
+            桌面端：inline w-64 紧贴右侧                   */}
         {showToolHistory && (
-          <div className="w-64 shrink-0 min-h-0 flex flex-col overflow-hidden border-l border-border">
-            {/* Tab 标签行 */}
-            <div className="flex items-stretch border-b border-border shrink-0 bg-muted/20">
-              <button
-                onClick={() => setSidePanelTab('plan')}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors relative',
-                  sidePanelTab === 'plan'
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <ListChecks className="w-3.5 h-3.5 shrink-0" />
-                任务计划
-                {taskPlanSteps.length > 0 && (
-                  <span className="text-[9px] font-mono bg-primary/10 text-primary px-1 rounded">
-                    {taskPlanSteps.length}
-                  </span>
-                )}
-                {sidePanelTab === 'plan' && (
-                  <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-t" />
-                )}
-              </button>
-              <button
-                onClick={() => setSidePanelTab('tools')}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors relative',
-                  sidePanelTab === 'tools'
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Wrench className="w-3.5 h-3.5 shrink-0" />
-                工具历史
-                {toolHistory.length > 0 && (
-                  <span className="text-[9px] font-mono bg-muted text-muted-foreground px-1 rounded">
-                    {toolHistory.length}
-                  </span>
-                )}
-                {sidePanelTab === 'tools' && (
-                  <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-t" />
-                )}
-              </button>
-              {/* 关闭按钮 */}
-              <button
-                onClick={() => setShowToolHistory(false)}
-                className="px-2 text-muted-foreground hover:text-foreground transition-colors"
-                title="关闭面板"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
+          <>
+            {/* 手机端半透明遮罩（点击关闭） */}
+            <div
+              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              onClick={() => setShowToolHistory(false)}
+            />
+            {/* 面板本体 */}
+            <div className={cn(
+              'flex flex-col overflow-hidden border-border bg-background',
+              'fixed inset-y-0 right-0 z-50 w-[88%] max-w-sm shadow-2xl border-l',
+              'md:static md:w-64 md:shrink-0 md:min-h-0 md:shadow-none md:z-auto'
+            )}>
+              {/* Tab 标签行 */}
+              <div className="flex items-stretch border-b border-border shrink-0 bg-muted/20">
+                <button
+                  onClick={() => setSidePanelTab('plan')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium transition-colors relative',
+                    sidePanelTab === 'plan'
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <ListChecks className="w-3.5 h-3.5 shrink-0" />
+                  任务计划
+                  {taskPlanSteps.length > 0 && (
+                    <span className="text-[9px] font-mono bg-primary/10 text-primary px-1 rounded">
+                      {taskPlanSteps.length}
+                    </span>
+                  )}
+                  {sidePanelTab === 'plan' && (
+                    <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-t" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setSidePanelTab('tools')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium transition-colors relative',
+                    sidePanelTab === 'tools'
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Wrench className="w-3.5 h-3.5 shrink-0" />
+                  工具历史
+                  {toolHistory.length > 0 && (
+                    <span className="text-[9px] font-mono bg-muted text-muted-foreground px-1 rounded">
+                      {toolHistory.length}
+                    </span>
+                  )}
+                  {sidePanelTab === 'tools' && (
+                    <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-t" />
+                  )}
+                </button>
+                {/* 关闭按钮（手机端更大触控区） */}
+                <button
+                  onClick={() => setShowToolHistory(false)}
+                  className="px-3 text-muted-foreground hover:text-foreground transition-colors min-w-[44px] flex items-center justify-center"
+                  title="关闭面板"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
 
-            {/* Tab 内容 */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              {sidePanelTab === 'plan' ? (
-                <TaskPlanPanel
-                  steps={taskPlanSteps}
-                  stepStatuses={stepStatuses}
-                  stepRetryCounts={stepRetryCounts}
-                  currentStepId={currentStepId}
-                />
-              ) : sidePanelTab === 'history' ? (
-                <WorkflowHistoryPanel userId={user?.login ?? 'anonymous'} />
-              ) : (
-                <ToolHistoryPanel items={toolHistory} />
-              )}
+              {/* Tab 内容 */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {sidePanelTab === 'plan' ? (
+                  <TaskPlanPanel
+                    steps={taskPlanSteps}
+                    stepStatuses={stepStatuses}
+                    stepRetryCounts={stepRetryCounts}
+                    currentStepId={currentStepId}
+                  />
+                ) : sidePanelTab === 'history' ? (
+                  <WorkflowHistoryPanel userId={user?.login ?? 'anonymous'} />
+                ) : (
+                  <ToolHistoryPanel items={toolHistory} />
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
