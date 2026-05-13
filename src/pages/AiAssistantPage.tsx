@@ -10,8 +10,8 @@ import {
   Bot, User, Send, Square, Trash2, Settings,
   Sparkles, AlertCircle,
   RefreshCw, Plus, GitPullRequest, History, ArrowLeft, Loader2,
-  Zap, FolderSearch, PanelRight, Wrench, ListChecks, Clock, WifiOff, CheckCircle2, XCircle,
-  Paperclip, X, ImageIcon, FileText, ChevronDown, ChevronRight,
+  Zap, FolderSearch, PanelRight, Wrench, ListChecks, WifiOff, CheckCircle2, XCircle,
+  Paperclip, X, ImageIcon, FileText, ChevronDown, ChevronRight, Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -72,6 +72,18 @@ export default function AiAssistantPage() {
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [isProtectedBranch, setIsProtectedBranch] = useState(false);
+
+  // ── 自主执行模式（持久化到 localStorage）─────────────────────────────────────
+  const [autoMode, setAutoMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('ai_auto_mode') === 'true'; } catch { return false; }
+  });
+  const toggleAutoMode = () => {
+    setAutoMode(prev => {
+      const next = !prev;
+      try { localStorage.setItem('ai_auto_mode', String(next)); } catch { /* noop */ }
+      return next;
+    });
+  };
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -431,6 +443,7 @@ export default function AiAssistantPage() {
       target_branch: selectedBranch,
       model_config: modelConfig,
       user_id: user?.login || 'anonymous',
+      auto_mode: autoMode,  // 自主执行模式标志，传递给 Edge Function
     };
     lastRequestBodyRef.current = reqBody;
     lastUserTextRef.current = userText;
@@ -687,14 +700,19 @@ export default function AiAssistantPage() {
           setIsStreaming(false);
           if (!document.hidden) {
             networkInterruptedRef.current = false;
-            toast.warning(`连接中断：${err.message}`, {
-              duration: 0,
-              id: 'reconnect-toast',
-              action: {
-                label: '重新连接',
-                onClick: () => { toast.dismiss('reconnect-toast'); handleReconnect(); },
-              },
-            });
+            // 自主模式下直接静默重连，不弹 toast 打断用户
+            if (autoMode) {
+              setTimeout(() => handleReconnect(), 1500);
+            } else {
+              toast.warning(`连接中断：${err.message}`, {
+                duration: 0,
+                id: 'reconnect-toast',
+                action: {
+                  label: '重新连接',
+                  onClick: () => { toast.dismiss('reconnect-toast'); handleReconnect(); },
+                },
+              });
+            }
           }
         } else {
           setMessages(prev => prev.map(m =>
@@ -710,7 +728,7 @@ export default function AiAssistantPage() {
       },
       signal: abortRef.current.signal,
     });
-  }, [input, attachments, formatAttachmentsForMessage, isStreaming, messages, selectedRepo, token, modelConfig, selectedBranch, persistMessages]);
+  }, [input, attachments, formatAttachmentsForMessage, isStreaming, messages, selectedRepo, token, modelConfig, selectedBranch, persistMessages, autoMode]);
 
   // ── 重连：用上次请求的 history + 一条"请继续"提示，重新发起流式请求 ────────────
   const handleReconnect = useCallback(() => {
@@ -929,14 +947,30 @@ export default function AiAssistantPage() {
           </Button>
         </div>
 
-        {/* 右侧：流式状态 + 文件浏览器切换 */}
+        {/* 右侧：流式状态 + 自主模式切换 + 文件浏览器 + 侧边面板 */}
         <div className="flex items-center gap-1 shrink-0">
           {isStreaming && (
-            <Badge variant="secondary" className="text-xs animate-pulse">
-              <span className="hidden sm:inline">思考中</span>
-              <Loader2 className="w-3 h-3 animate-spin sm:hidden" />
+            <Badge variant="secondary" className={cn('text-xs animate-pulse', autoMode && 'bg-primary/10 text-primary border-primary/20')}>
+              {autoMode
+                ? <><Cpu className="w-3 h-3 mr-1 animate-spin" /><span className="hidden sm:inline">自主执行中</span></>
+                : <><span className="hidden sm:inline">思考中</span><Loader2 className="w-3 h-3 animate-spin sm:hidden" /></>
+              }
             </Badge>
           )}
+          {/* 自主模式切换按钮 */}
+          <button
+            onClick={toggleAutoMode}
+            className={cn(
+              'flex items-center gap-1 px-1.5 py-1 rounded-md transition-colors text-xs font-medium',
+              autoMode
+                ? 'bg-primary/10 text-primary border border-primary/25'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+            title={autoMode ? '自主模式已开启（点击关闭）' : '开启自主模式：AI 自动执行所有步骤，网络中断后自动重连'}
+          >
+            <Cpu className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">{autoMode ? '自主' : '自主'}</span>
+          </button>
           <button
             onClick={() => setShowFileBrowser(v => !v)}
             className={cn(
@@ -983,6 +1017,23 @@ export default function AiAssistantPage() {
             title="关闭提示"
           >
             <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* 自主模式提示条 */}
+      {autoMode && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/8 border-b border-primary/15 shrink-0">
+          <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />
+          <p className="text-xs text-primary flex-1 min-w-0">
+            <span className="font-semibold">自主模式已开启</span>
+            <span className="text-primary/70 ml-1">· AI 将自动执行所有步骤，网络中断后自动重连</span>
+          </p>
+          <button
+            onClick={toggleAutoMode}
+            className="shrink-0 text-xs text-primary/60 hover:text-primary transition-colors underline"
+          >
+            关闭
           </button>
         </div>
       )}
@@ -1139,7 +1190,9 @@ export default function AiAssistantPage() {
                           {msg.content ? (
                             msg.content.includes('## 🔧 修复清单')
                               ? <RepairChecklist content={msg.content} />
-                              : renderMarkdown(msg.content)
+                              : renderMarkdown(msg.content, (filePath) => {
+                                  handleSend(`请将上面的 diff 修改应用到仓库文件 \`${filePath}\`，直接使用工具提交到当前分支。`);
+                                })
                           ) : (
                             msg.streaming
                               ? <span className="inline-block w-1.5 h-4 bg-primary animate-pulse rounded-sm align-middle" />

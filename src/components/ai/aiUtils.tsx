@@ -1,6 +1,7 @@
 // AI 助手共享工具函数 & 常量
 import React, { useState } from 'react';
 import type { ModelConfig, ModelType, SSEChunk } from './aiTypes';
+import DiffBlock from './DiffBlock';
 import {
   FolderOpen, BookOpen, Search, FileCode2, Pencil,
   GitBranch, GitCommit, GitMerge, CircleAlert,
@@ -196,7 +197,7 @@ export function ThinkingBlock({ content, done }: { content: string; done?: boole
  * - 所有文本强制 break-words + whitespace-pre-wrap，防止超出视口
  * - 支持 # / ## / ### 标题、有序/无序列表、粗体、行内代码
  */
-export function renderMarkdown(text: string): React.ReactNode {
+export function renderMarkdown(text: string, onApplyDiff?: (filePath: string) => void): React.ReactNode {
   if (!text) return null;
   const lines = text.split('\n');
   const result: React.ReactNode[] = [];
@@ -219,7 +220,7 @@ export function renderMarkdown(text: string): React.ReactNode {
 
     // ── 代码块 ──────────────────────────────────────────────────────
     if (line.startsWith('```')) {
-      const lang = line.slice(3).trim();
+      const lang = line.slice(3).trim().toLowerCase();
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) {
@@ -227,6 +228,17 @@ export function renderMarkdown(text: string): React.ReactNode {
         i++;
       }
       const codeText = codeLines.join('\n');
+
+      // diff / patch 语言 → DiffBlock 高亮渲染
+      if (lang === 'diff' || lang === 'patch') {
+        result.push(
+          <div key={key++} className="my-2 min-w-0 w-full">
+            <DiffBlock raw={codeText} onApply={onApplyDiff} />
+          </div>
+        );
+        i++; continue;
+      }
+
       result.push(
         <div key={key++} className="my-2 rounded-lg border border-border bg-muted overflow-hidden">
           {lang && (
