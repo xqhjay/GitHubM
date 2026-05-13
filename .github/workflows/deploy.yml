@@ -65,10 +65,11 @@ jobs:
         with:
           version: 9
 
-      - name: 设置 Node.js
+      - name: 设置 Node.js（含 pnpm 依赖缓存）
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm       # pnpm store 缓存；首次约 40s，缓存命中后约 8s
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
@@ -282,6 +283,34 @@ jobs:
           echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
       # ── 创建 GitHub Release 并上传 APK ────────────────────────
+      - name: 生成变更日志
+        id: changelog
+        run: |
+          # 获取上一个 Release tag（无则取所有提交）
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s" | head -60)
+          else
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%s")
+          fi
+
+          # 按 Conventional Commits 前缀分类
+          FEATURES=$(echo "$COMMITS" | grep -E "^feat[:(]"   | sed 's/^feat[:(]/- ✨ /' | sed 's/)$//' || true)
+          FIXES=$(echo "$COMMITS"    | grep -E "^fix[:(]"    | sed 's/^fix[:(]/- 🐛 /'  | sed 's/)$//' || true)
+          PERF=$(echo "$COMMITS"     | grep -E "^perf[:(]"   | sed 's/^perf[:(]/- ⚡ /' | sed 's/)$//' || true)
+          DOCS=$(echo "$COMMITS"     | grep -E "^doc[:(]"    | sed 's/^doc[:(]/- 📖 /'  | sed 's/)$//' || true)
+          OTHERS=$(echo "$COMMITS"   | grep -vE "^(feat|fix|perf|doc|chore|test|style|refactor)[:(]" | sed 's/^/- /' | head -10 || true)
+
+          {
+            echo "changelog<<EOF"
+            [ -n "$FEATURES" ] && echo "### ✨ 新功能"  && echo "$FEATURES" && echo ""
+            [ -n "$FIXES"    ] && echo "### 🐛 修复"    && echo "$FIXES"    && echo ""
+            [ -n "$PERF"     ] && echo "### ⚡ 性能优化" && echo "$PERF"    && echo ""
+            [ -n "$DOCS"     ] && echo "### 📖 文档"    && echo "$DOCS"     && echo ""
+            [ -n "$OTHERS"   ] && echo "### 🔧 其他更新" && echo "$OTHERS"  && echo ""
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -308,6 +337,8 @@ jobs:
           - 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')
           - ${SIGN_NOTE}
 
+          ${{ steps.changelog.outputs.changelog }}
+
           **安装方式**
           1. 下载下方 APK 文件到 Android 设备
           2. 允许「安装未知来源应用」后点击安装
@@ -315,7 +346,6 @@ jobs:
 
           **系统要求**
           - Android 8.0（API 26）及以上"
-
           # 如同名 tag 已存在则先删除（workflow_dispatch 重复触发场景）
           gh release delete "${TAG}" --yes 2>/dev/null || true
           git push origin --delete "${TAG}" 2>/dev/null || true
