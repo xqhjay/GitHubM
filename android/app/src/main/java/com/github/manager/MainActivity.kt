@@ -247,6 +247,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
+         * 检查是否有新版本可用，结果通过 JS CustomEvent 'appUpdateAvailable' 异步推送给前端。
+         * 调用方：SettingsPage 或应用冷启动后延迟调用。
+         *
+         * 调用：window.AndroidBridge.checkUpdate()
+         */
+        @JavascriptInterface
+        fun checkUpdate() {
+            checkUpdateInternal()
+        }
+
+        /**
          * ExportPage 调用：传内存文本内容（Base64 编码），由原生写入「下载」文件夹。
          * 适用于 JSON/CSV 导出等纯文本内容，不经过 DownloadManager。
          *
@@ -294,6 +305,85 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── MediaStore / Legacy 存储写入 ────────────────────────────────
+
+    /**
+     * 检查 GitHub Releases 最新版本，若有新版本则通过 JS 事件通知前端展示更新提示。
+     *
+     * 调用方式：window.AndroidBridge.checkUpdate()
+     *
+     * 前端监听示例：
+     *   window.addEventListener('appUpdateAvailable', (e) => {
+     *     const { version, downloadUrl, releaseNotes } = e.detail;
+     *     // 展示更新弹窗或 Toast
+     *   });
+     *
+     * 版本比较策略：
+     *   - 从 localStorage 读取当前 App 版本（由 CI 注入 VITE_APP_VERSION）
+     *   - 与 GitHub Releases latest tag 比较（去掉前缀 'v'）
+     *   - 相同则静默返回，不骚扰用户
+     *   - 网络不可用或接口返回非预期状态码时静默失败
+     */
+    private fun checkUpdateInternal() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val conn = (URL("https://api.github.com/repos/qq5855144/GitHubM/releases/latest")
+                        .openConnection() as HttpURLConnection).apply {
+                        setRequestProperty("Accept", "application/vnd.github.v3+json")
+                        setRequestProperty("User-Agent", "GitHubM-Android-UpdateChecker")
+                        connectTimeout = 10_000
+                        readTimeout = 10_000
+                        instanceFollowRedirects = true
+                    }
+                    conn.connect()
+                    if (conn.responseCode != 200) return@runCatching
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    conn.disconnect()
+
+                    // 简单 JSON 解析：避免引入额外依赖，只提取需要的字段
+                    val tagMatch = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(body)
+                    val urlMatch = Regex(""""browser_download_url"\s*:\s*"([^"]+\.apk)"""").find(body)
+                    val notesMatch = Regex(""""body"\s*:\s*"((?:[^"\\]|\\.)*)"""").find(body)
+                    val latestTag = tagMatch?.groupValues?.getOrNull(1) ?: return@runCatching
+                    val downloadUrl = urlMatch?.groupValues?.getOrNull(1) ?: ""
+                    // Release notes 反转义（JSON \n → 实际换行）
+                    val releaseNotes = notesMatch?.groupValues?.getOrNull(1)
+                        ?.replace("\\n", "\n")?.replace("\\\"", "\"") ?: ""
+
+                    withContext(Dispatchers.Main) {
+                        // 读取前端存储的当前版本（VITE_APP_VERSION，如 "1.0.42"）
+                        val jsExpr = "(function(){ try { return localStorage.getItem('app_version') || '' } catch(e){ return '' } })()"
+                        webView.evaluateJavascript(jsExpr) { rawVersion ->
+                            val currentVersion = rawVersion?.removeSurrounding("\"")?.trim() ?: ""
+                            // 比较规则：忽略 'v' 前缀，字符串不等则视为需要更新
+                            val latest = latestTag.trimStart('v')
+                            val current = currentVersion.trimStart('v')
+                            if (latest.isNotBlank() && latest != current) {
+                                val safeTag = latestTag.replace("'", "\\'")
+                                val safeUrl = downloadUrl.replace("'", "\\'")
+                                val safeNotes = releaseNotes
+                                    .replace("\\", "\\\\")
+                                    .replace("'", "\\'")
+                                    .replace("\n", "\\n")
+                                    .take(500) // 截断过长的 notes
+                                val js = """
+                                    window.dispatchEvent(new CustomEvent('appUpdateAvailable', {
+                                        detail: {
+                                            version: '$safeTag',
+                                            downloadUrl: '$safeUrl',
+                                            releaseNotes: '$safeNotes'
+                                        }
+                                    }));
+                                """.trimIndent()
+                                webView.evaluateJavascript(js, null)
+                            }
+                        }
+                    }
+                }
+                // 所有异常静默吞掉，更新检查不应影响主流程
+            }
+        }
+    }
 
     private fun saveToMediaStore(bytes: ByteArray, fileName: String, mimeType: String): String {
         val effectiveMime = FileUtils.normalizeMimeType(mimeType)
