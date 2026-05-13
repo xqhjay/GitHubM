@@ -311,22 +311,21 @@ class MainActivity : AppCompatActivity() {
      *
      * 调用方式：window.AndroidBridge.checkUpdate()
      *
-     * 前端监听示例：
-     *   window.addEventListener('appUpdateAvailable', (e) => {
-     *     const { version, downloadUrl, releaseNotes } = e.detail;
-     *     // 展示更新弹窗或 Toast
-     *   });
+     * 前端监听事件（三种结果）：
+     *   appUpdateAvailable  → { version, downloadUrl, releaseNotes }  有新版本
+     *   appUpdateLatest     → { currentVersion }                       已是最新
+     *   appUpdateError      → { message }                              检查失败
      *
      * 版本比较策略：
      *   - 从 localStorage 读取当前 App 版本（由 CI 注入 VITE_APP_VERSION）
      *   - 与 GitHub Releases latest tag 比较（去掉前缀 'v'）
-     *   - 相同则静默返回，不骚扰用户
-     *   - 网络不可用或接口返回非预期状态码时静默失败
+     *   - 任何网络/解析错误均通过 appUpdateError 事件通知前端
      */
     private fun checkUpdateInternal() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                runCatching {
+                // 网络/解析异常通过 appUpdateError 事件通知前端
+                val result: Result<Triple<String, String, String>> = runCatching {
                     val conn = (URL("https://api.github.com/repos/qq5855144/GitHubM/releases/latest")
                         .openConnection() as HttpURLConnection).apply {
                         setRequestProperty("Accept", "application/vnd.github.v3+json")
@@ -336,7 +335,11 @@ class MainActivity : AppCompatActivity() {
                         instanceFollowRedirects = true
                     }
                     conn.connect()
-                    if (conn.responseCode != 200) return@runCatching
+                    val code = conn.responseCode
+                    if (code != 200) {
+                        conn.disconnect()
+                        throw IOException("GitHub API 返回 $code")
+                    }
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
                     conn.disconnect()
 
@@ -344,28 +347,38 @@ class MainActivity : AppCompatActivity() {
                     val tagMatch = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(body)
                     val urlMatch = Regex(""""browser_download_url"\s*:\s*"([^"]+\.apk)"""").find(body)
                     val notesMatch = Regex(""""body"\s*:\s*"((?:[^"\\]|\\.)*)"""").find(body)
-                    val latestTag = tagMatch?.groupValues?.getOrNull(1) ?: return@runCatching
+                    val latestTag = tagMatch?.groupValues?.getOrNull(1)
+                        ?: throw IOException("解析版本号失败")
                     val downloadUrl = urlMatch?.groupValues?.getOrNull(1) ?: ""
-                    // Release notes 反转义（JSON \n → 实际换行）
                     val releaseNotes = notesMatch?.groupValues?.getOrNull(1)
                         ?.replace("\\n", "\n")?.replace("\\\"", "\"") ?: ""
+                    Triple(latestTag, downloadUrl, releaseNotes)
+                }
 
-                    withContext(Dispatchers.Main) {
-                        // 读取前端存储的当前版本（VITE_APP_VERSION，如 "1.0.42"）
+                withContext(Dispatchers.Main) {
+                    result.onFailure { err ->
+                        // 网络/解析失败 → 通知前端显示错误
+                        val safeMsg = (err.message ?: "未知错误")
+                            .replace("\\", "\\\\").replace("'", "\\'").take(200)
+                        val js = "window.dispatchEvent(new CustomEvent('appUpdateError', { detail: { message: '$safeMsg' } }));"
+                        webView.evaluateJavascript(js, null)
+                    }
+                    result.onSuccess { (latestTag, downloadUrl, releaseNotes) ->
+                        // 读取前端存储的当前版本
                         val jsExpr = "(function(){ try { return localStorage.getItem('app_version') || '' } catch(e){ return '' } })()"
                         webView.evaluateJavascript(jsExpr) { rawVersion ->
                             val currentVersion = rawVersion?.removeSurrounding("\"")?.trim() ?: ""
-                            // 比较规则：忽略 'v' 前缀，字符串不等则视为需要更新
                             val latest = latestTag.trimStart('v')
                             val current = currentVersion.trimStart('v')
                             if (latest.isNotBlank() && latest != current) {
+                                // 有新版本
                                 val safeTag = latestTag.replace("'", "\\'")
                                 val safeUrl = downloadUrl.replace("'", "\\'")
                                 val safeNotes = releaseNotes
                                     .replace("\\", "\\\\")
                                     .replace("'", "\\'")
                                     .replace("\n", "\\n")
-                                    .take(500) // 截断过长的 notes
+                                    .take(500)
                                 val js = """
                                     window.dispatchEvent(new CustomEvent('appUpdateAvailable', {
                                         detail: {
@@ -376,11 +389,15 @@ class MainActivity : AppCompatActivity() {
                                     }));
                                 """.trimIndent()
                                 webView.evaluateJavascript(js, null)
+                            } else {
+                                // 已是最新版本
+                                val safeCurrent = currentVersion.replace("'", "\\'")
+                                val js = "window.dispatchEvent(new CustomEvent('appUpdateLatest', { detail: { currentVersion: '$safeCurrent' } }));"
+                                webView.evaluateJavascript(js, null)
                             }
                         }
                     }
                 }
-                // 所有异常静默吞掉，更新检查不应影响主流程
             }
         }
     }
