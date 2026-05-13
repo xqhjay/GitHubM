@@ -90,11 +90,13 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { pageCache } from '@/lib/page-cache';
 
 // 仓库右键上下文菜单
-function RepoContextMenu({ repo, onDeleteSuccess }: { repo: GitHubRepo; onDeleteSuccess: (name: string) => void }) {
+// ContextMenu 菜单内容（不含任何弹窗，只触发回调）
+function RepoContextMenu({ repo, onDeleteRequest, onDeleteSuccess }: {
+  repo: GitHubRepo;
+  onDeleteRequest: () => void;
+  onDeleteSuccess: (name: string) => void;
+}) {
   const navigate = useNavigate();
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [confirmName, setConfirmName] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   const handleToggleStar = async () => {
     try {
@@ -126,14 +128,81 @@ function RepoContextMenu({ repo, onDeleteSuccess }: { repo: GitHubRepo; onDelete
     toast.success('仓库地址已复制');
   };
 
+  // 仅渲染菜单内容，AlertDialog 由外部（ContextMenu 树之外）负责渲染
+  // 这样弹窗里的 pointer 事件不会通过 React fiber 冒泡回到 ContextMenuTrigger
+  return (
+    <ContextMenuContent className="bg-popover border-border w-52">
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+        onClick={() => navigate(`/repos/${repo.full_name}`)}>
+        <BookOpen className="w-3.5 h-3.5 mr-2" />查看仓库详情
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+        onClick={() => navigate(`/repos/${repo.full_name}/code`)}>
+        <Code2 className="w-3.5 h-3.5 mr-2" />浏览代码
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+        onClick={() => navigate(`/repos/${repo.full_name}/commits/${repo.default_branch}`)}>
+        <GitBranch className="w-3.5 h-3.5 mr-2" />查看提交记录
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+        onClick={() => navigate(`/repos/${repo.full_name}/issues`)}>
+        <AlertCircle className="w-3.5 h-3.5 mr-2" />查看 Issues
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm"
+        onClick={() => navigate(`/repos/${repo.full_name}/pulls`)}>
+        <GitPullRequest className="w-3.5 h-3.5 mr-2" />查看 Pull Requests
+      </ContextMenuItem>
+      <ContextMenuSeparator className="bg-border" />
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleToggleStar}>
+        <Star className="w-3.5 h-3.5 mr-2" />Star / 取消 Star
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleFork}>
+        <GitFork className="w-3.5 h-3.5 mr-2" />Fork 仓库
+      </ContextMenuItem>
+      <ContextMenuSeparator className="bg-border" />
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleCopyUrl}>
+        <Copy className="w-3.5 h-3.5 mr-2" />复制仓库地址
+      </ContextMenuItem>
+      <ContextMenuItem className="text-foreground cursor-pointer text-sm" asChild>
+        <a href={repo.html_url} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="w-3.5 h-3.5 mr-2" />在 GitHub 中打开
+        </a>
+      </ContextMenuItem>
+      <ContextMenuSeparator className="bg-border" />
+      <ContextMenuItem
+        className="text-destructive cursor-pointer text-sm focus:text-destructive"
+        onClick={onDeleteRequest}
+      >
+        <Trash2 className="w-3.5 h-3.5 mr-2" />删除仓库
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+}
+
+// 删除确认弹窗：独立组件，在 ContextMenu 树之外渲染，彻底断开 React fiber 冒泡链路
+function RepoDeleteDialog({ repo, open, onOpenChange, onDeleteSuccess }: {
+  repo: GitHubRepo | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleteSuccess: (name: string) => void;
+}) {
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  // 弹窗关闭时重置输入
+  const handleOpenChange = (v: boolean) => {
+    if (!v) setConfirmName('');
+    onOpenChange(v);
+  };
+
   const handleDelete = async () => {
+    if (!repo) return;
     if (confirmName !== repo.name) { toast.error('仓库名称不一致'); return; }
     setDeleting(true);
     try {
       await deleteRepo(repo.owner.login, repo.name);
       toast.success(`已删除仓库 ${repo.name}`);
-      setDeleteDialogOpen(false);
-      // 通知父组件刷新列表，避免 window.location.reload() 导致 GitHub Pages 空白页
+      handleOpenChange(false);
       onDeleteSuccess(repo.name);
     } catch {
       toast.error('删除失败，请确认你有足够权限');
@@ -143,90 +212,41 @@ function RepoContextMenu({ repo, onDeleteSuccess }: { repo: GitHubRepo; onDelete
   };
 
   return (
-    <>
-      <ContextMenuContent className="bg-popover border-border w-52">
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => navigate(`/repos/${repo.full_name}`)}>
-          <BookOpen className="w-3.5 h-3.5 mr-2" />查看仓库详情
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => navigate(`/repos/${repo.full_name}/code`)}>
-          <Code2 className="w-3.5 h-3.5 mr-2" />浏览代码
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => navigate(`/repos/${repo.full_name}/commits/${repo.default_branch}`)}>
-          <GitBranch className="w-3.5 h-3.5 mr-2" />查看提交记录
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => navigate(`/repos/${repo.full_name}/issues`)}>
-          <AlertCircle className="w-3.5 h-3.5 mr-2" />查看 Issues
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm"
-          onClick={() => navigate(`/repos/${repo.full_name}/pulls`)}>
-          <GitPullRequest className="w-3.5 h-3.5 mr-2" />查看 Pull Requests
-        </ContextMenuItem>
-        <ContextMenuSeparator className="bg-border" />
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleToggleStar}>
-          <Star className="w-3.5 h-3.5 mr-2" />Star / 取消 Star
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleFork}>
-          <GitFork className="w-3.5 h-3.5 mr-2" />Fork 仓库
-        </ContextMenuItem>
-        <ContextMenuSeparator className="bg-border" />
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" onClick={handleCopyUrl}>
-          <Copy className="w-3.5 h-3.5 mr-2" />复制仓库地址
-        </ContextMenuItem>
-        <ContextMenuItem className="text-foreground cursor-pointer text-sm" asChild>
-          <a href={repo.html_url} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="w-3.5 h-3.5 mr-2" />在 GitHub 中打开
-          </a>
-        </ContextMenuItem>
-        <ContextMenuSeparator className="bg-border" />
-        <ContextMenuItem
-          className="text-destructive cursor-pointer text-sm focus:text-destructive"
-          onClick={() => { setConfirmName(''); setDeleteDialogOpen(true); }}
-        >
-          <Trash2 className="w-3.5 h-3.5 mr-2" />删除仓库
-        </ContextMenuItem>
-      </ContextMenuContent>
-
-      {/* 删除确认对话框 */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="max-w-[calc(100%-2rem)] md:max-w-lg bg-card border-border">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-foreground flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-destructive" />删除仓库
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground text-sm space-y-2">
-              <span>此操作将永久删除 </span>
-              <code className="font-mono text-foreground bg-secondary px-1.5 py-0.5 rounded text-xs">{repo.full_name}</code>
-              <span>，包括所有代码、Issues、PR 等，且不可恢复。</span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="px-1 py-2 space-y-1.5">
-            <Label className="text-sm font-normal text-foreground">
-              请输入仓库名称 <code className="font-mono bg-secondary px-1 rounded text-xs">{repo.name}</code> 确认删除
-            </Label>
-            <Input
-              value={confirmName}
-              onChange={(e) => setConfirmName(e.target.value)}
-              placeholder={repo.name}
-              className="bg-secondary border-border text-foreground placeholder:text-muted-foreground font-mono"
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-border hover:bg-secondary">取消</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
-              disabled={deleting || confirmName !== repo.name}
-            >
-              {deleting ? '删除中...' : '确认删除'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
+      <AlertDialogContent className="max-w-[calc(100%-2rem)] md:max-w-lg bg-card border-border">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-foreground flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-destructive" />删除仓库
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-muted-foreground text-sm space-y-2">
+            <span>此操作将永久删除 </span>
+            <code className="font-mono text-foreground bg-secondary px-1.5 py-0.5 rounded text-xs">{repo?.full_name}</code>
+            <span>，包括所有代码、Issues、PR 等，且不可恢复。</span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="px-1 py-2 space-y-1.5">
+          <Label className="text-sm font-normal text-foreground">
+            请输入仓库名称 <code className="font-mono bg-secondary px-1 rounded text-xs">{repo?.name}</code> 确认删除
+          </Label>
+          <Input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            placeholder={repo?.name ?? ''}
+            className="bg-secondary border-border text-foreground placeholder:text-muted-foreground font-mono"
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="border-border hover:bg-secondary">取消</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={handleDelete}
+            disabled={deleting || confirmName !== (repo?.name ?? '')}
+          >
+            {deleting ? '删除中...' : '确认删除'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -384,6 +404,10 @@ export default function ReposPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [typeFilter, setTypeFilter] = useState<'all' | 'owner' | 'member' | 'public' | 'private'>('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  // 删除弹窗状态：在 ContextMenu 树之外统一管理，避免 React Portal 事件冒泡触发 ContextMenu
+  const [deleteTarget, setDeleteTarget] = useState<GitHubRepo | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // 创建仓库表单
   const [newRepoName, setNewRepoName] = useState('');
@@ -762,13 +786,19 @@ export default function ReposPage() {
                     </div>
                   </div>
                 </ContextMenuTrigger>
-                <RepoContextMenu repo={repo} onDeleteSuccess={(name) => {
-                  // 立即从列表中移除（乐观更新），无需等待 API 响应
-                  setRepos(prev => prev.filter(r => r.name !== name));
-                  pageCache.invalidate('repos:');
-                  // 异步静默刷新，同步最终数据（时间戳绕过 GitHub CDN 60s 缓存）
-                  loadRepos(1, false, true);
-                }} />
+                <RepoContextMenu
+                  repo={repo}
+                  onDeleteRequest={() => {
+                    // 只设置目标，弹窗在 ContextMenu 树之外渲染
+                    setDeleteTarget(repo);
+                    setDeleteDialogOpen(true);
+                  }}
+                  onDeleteSuccess={(name) => {
+                    setRepos(prev => prev.filter(r => r.name !== name));
+                    pageCache.invalidate('repos:');
+                    loadRepos(1, false, true);
+                  }}
+                />
               </ContextMenu>
             ))}
           </div>
@@ -788,6 +818,22 @@ export default function ReposPage() {
           </Button>
         </div>
       )}
+
+      {/* 删除确认弹窗：渲染在 ContextMenu 组件树之外，切断 React Portal 事件冒泡路径
+          避免弹窗内长按事件通过 fiber 树冒泡回到 ContextMenuTrigger，重新触发右键菜单 */}
+      <RepoDeleteDialog
+        repo={deleteTarget}
+        open={deleteDialogOpen}
+        onOpenChange={(v) => {
+          setDeleteDialogOpen(v);
+          if (!v) setDeleteTarget(null);
+        }}
+        onDeleteSuccess={(name) => {
+          setRepos(prev => prev.filter(r => r.name !== name));
+          pageCache.invalidate('repos:');
+          loadRepos(1, false, true);
+        }}
+      />
     </div>
   );
 }
