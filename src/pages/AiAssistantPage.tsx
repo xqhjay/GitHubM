@@ -977,6 +977,13 @@ export default function AiAssistantPage() {
               新建功能分支
             </button>
           </p>
+          <button
+            onClick={() => setIsProtectedBranch(false)}
+            className="shrink-0 p-0.5 rounded text-amber-500/70 hover:text-amber-600 hover:bg-amber-500/15 transition-colors"
+            title="关闭提示"
+          >
+            <X className="w-3 h-3" />
+          </button>
         </div>
       )}
 
