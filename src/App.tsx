@@ -38,6 +38,18 @@ function AppContent() {
     }
   }, [loading]);
 
+  useEffect(() => {
+    /**
+     * 全局禁用浏览器/WebView 右键及长按上下文菜单。
+     * Android WebView 长按会弹出系统原生菜单（文字选择/复制/链接等），
+     * 该菜单叠在 Radix Dialog 遮罩上时会拦截触摸事件，导致页面卡死无法交互。
+     * 直接阻止 contextmenu 默认行为可彻底解决此问题。
+     */
+    const blockContextMenu = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener('contextmenu', blockContextMenu);
+    return () => document.removeEventListener('contextmenu', blockContextMenu);
+  }, []);
+
   return (
     <>
       <Routes>
