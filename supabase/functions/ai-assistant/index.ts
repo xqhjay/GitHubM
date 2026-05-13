@@ -157,17 +157,45 @@ function diagnose4xx(err: unknown, context?: string): string {
         return `${ctx2} ❌ 409 已存在：目标资源（分支/文件/标签）已存在，无法重复创建。\n建议：用 list_branches 或 list_files 确认，若确实需要覆盖，先删除再创建。`;
       }
       return `${ctx2} ❌ 409 冲突：${bodyMsg}\n建议：检查资源状态，解决冲突后重试。`;
-    case 422:
+    case 422: {
+      // 解析 GitHub 422 的结构化 errors 数组（仅靠 message 字段信息不足）
+      let errorsDetail = "";
+      try {
+        const parsed = JSON.parse(body);
+        const errors = parsed?.errors as Array<Record<string, string>> | undefined;
+        if (Array.isArray(errors) && errors.length) {
+          errorsDetail = errors.map(e =>
+            e.message ? e.message : `field=${e.field ?? "?"} code=${e.code ?? "?"}`
+          ).join("；");
+        }
+      } catch (_) { /* ignore */ }
+
+      if (bodyMsg.includes("No commits between") || bodyMsg.includes("no commits")) {
+        // head 与 base 分支内容完全一致，GitHub 拒绝创建空 PR
+        const branches = bodyMsg.match(/between\s+(\S+)\s+and\s+(\S+)/i);
+        const bFrom = branches?.[1] ?? "head 分支";
+        const bTo   = branches?.[2] ?? "base 分支";
+        return `${ctx2} ❌ 422 无法创建 PR：\`${bFrom}\` 与 \`${bTo}\` 内容完全相同，没有差异提交。\n建议：确认恢复分支上已有新的提交（write_file / patch_file 后再 create_pr），或检查是否选错了分支。`;
+      }
+      if (bodyMsg.includes("already exists") || bodyMsg.includes("A pull request already")) {
+        // 该两分支间已存在 open PR，无需重复创建
+        return `${ctx2} ❌ 422 PR 已存在：这两个分支之间已有一个 open 状态的 PR。\n建议：用 list_pull_requests 查看已有 PR，直接对现有 PR 操作（merge_pull_request 或关闭后重建）。`;
+      }
       if (bodyMsg.includes("workflow_dispatch")) {
         return `${ctx2} ❌ 422 工作流缺少 workflow_dispatch 触发器（将自动修复）。`;
       }
       if (bodyMsg.includes("protected branch")) {
         return `${ctx2} ❌ 422 分支保护规则阻止操作：目标分支设有保护规则（需要 PR review / status check 通过）。\n建议：走 create_pr → merge_pull_request 流程，确保 CI 通过并获得 review 后再合并。`;
       }
-      if (bodyMsg.includes("Validation Failed")) {
-        return `${ctx2} ❌ 422 参数校验失败：${bodyMsg}\n建议：检查工具调用的参数格式（如 pull_number 必须为字符串数字、标题不能为空等）。`;
+      if (errorsDetail) {
+        // 有字段级别校验失败（如 head 分支不存在、title 为空等）
+        return `${ctx2} ❌ 422 参数校验失败：${errorsDetail}\n建议：① title 不能为空；② head/base 必须是已存在的分支名（不加 owner: 前缀）；③ 用 list_branches 确认分支名称后重试。`;
       }
-      return `${ctx2} ❌ 422 无法处理的请求：${bodyMsg}\n建议：检查参数是否符合 GitHub API 要求，或先查询资源状态再重试。`;
+      if (bodyMsg.includes("Validation Failed")) {
+        return `${ctx2} ❌ 422 参数校验失败：${bodyMsg}\n建议：① title 不能为空；② head/base 填分支名（不加 owner: 前缀，如 restore/main 而非 user:restore/main）；③ 确保 head 分支已存在（list_branches 确认）。`;
+      }
+      return `${ctx2} ❌ 422 无法处理的请求：${bodyMsg}${errorsDetail ? `\n详情：${errorsDetail}` : ""}\n建议：检查参数是否符合 GitHub API 要求，或先查询资源状态再重试。`;
+    }
     case 410:
       return `${ctx2} ❌ 410 资源已被删除：该 Issue/PR/分支已永久删除，无法再操作。`;
     case 451:
@@ -862,12 +890,39 @@ async function createPullRequest(
   base: string,
   body?: string,
 ): Promise<string> {
+  // ── 入参清洗 ──────────────────────────────────────────────────────────────
+  // head/base 可能带 "owner:" 前缀（跨 fork 格式），同仓库 PR 去掉前缀
+  const cleanHead = (head ?? "").trim().replace(/^[^:]+:/, "");
+  const cleanBase = (base ?? "").trim().replace(/^[^:]+:/, "");
+  const cleanTitle = (title ?? "").trim() || `restore: 恢复 ${cleanHead} 到 ${cleanBase}`;
+  const cleanBody  = (body ?? "").trim();
+
+  if (!cleanHead || !cleanBase) {
+    return `【create_pr】 ❌ 参数缺失：head（源分支）和 base（目标分支）均不能为空。\n请先用 list_branches 确认分支名称后重试。`;
+  }
+  if (cleanHead === cleanBase) {
+    return `【create_pr】 ❌ 参数错误：head 分支与 base 分支相同（均为 \`${cleanHead}\`），无法创建 PR。\n请确认要合并的源分支名称。`;
+  }
+
+  // ── 预检：是否已存在该两分支间的 open PR ─────────────────────────────────
+  try {
+    const existing = await githubRequest(
+      ctx,
+      `/repos/${ctx.owner}/${ctx.repo}/pulls?state=open&head=${ctx.owner}:${cleanHead}&base=${cleanBase}&per_page=1`,
+    ) as Array<Record<string, unknown>>;
+    if (existing.length > 0) {
+      const pr = existing[0];
+      return `【create_pr】 ℹ️ PR 已存在（无需重复创建）：\`${cleanHead}\` → \`${cleanBase}\` 已有 open PR。\n- #${pr.number} **${pr.title}**  [查看](${pr.html_url})\n如需合并，直接用：{"tool":"merge_pull_request","pull_number":"${pr.number}","merge_method":"squash"}`;
+    }
+  } catch (_) { /* 预检失败不阻断，继续尝试创建 */ }
+
+  // ── 创建 PR ───────────────────────────────────────────────────────────────
   try {
     const pr = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/pulls`, {
       method: "POST",
-      body: JSON.stringify({ title, head, base, body: body || "", draft: false }),
+      body: JSON.stringify({ title: cleanTitle, head: cleanHead, base: cleanBase, body: cleanBody, draft: false }),
     });
-    return `✅ PR 已创建：[#${pr.number} ${pr.title}](${pr.html_url})\n- 从 \`${head}\` → \`${base}\`\n- 状态：${pr.state}`;
+    return `✅ PR 已创建：[#${pr.number} ${pr.title}](${pr.html_url})\n- 从 \`${cleanHead}\` → \`${cleanBase}\`\n- 状态：${pr.state}`;
   } catch (e) { return diagnose4xx(e, "create_pr"); }
 }
 
@@ -1987,6 +2042,7 @@ ${branchNote}
 13. 获取提交历史：{"tool":"list_commits","path":""}
 14. 列出 PR：{"tool":"list_pull_requests","state":"open"}
 15. 创建 PR：{"tool":"create_pr","title":"fix: 修复构建失败","head":"fix/build","base":"main","body":"描述"}
+    ⚠️ head/base 填写**分支名**（不加 owner: 前缀）；title 不能为空；head 与 base 必须有差异提交，否则 API 拒绝
 16. 合并 PR：{"tool":"merge_pull_request","pull_number":"42","merge_method":"squash"}
 
 🐛 **Issue 管理**
