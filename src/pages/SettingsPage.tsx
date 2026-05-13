@@ -1,6 +1,6 @@
 // 设置页
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Settings,
   Key,
@@ -18,6 +18,7 @@ import {
   Loader2,
   User,
   Palette,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,6 +245,46 @@ export default function SettingsPage() {
   const [updatingToken, setUpdatingToken] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+
+  // ── 版本更新检查 ─────────────────────────────────────────────────
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    downloadUrl: string;
+    releaseNotes: string;
+  } | null>(null);
+
+  // 将当前版本号写入 localStorage，供 Android 原生读取对比
+  useEffect(() => {
+    const ver = import.meta.env.VITE_APP_VERSION;
+    if (ver) {
+      try { localStorage.setItem('app_version', ver); } catch { /* ignore */ }
+    }
+  }, []);
+
+  // 监听 Android 原生推送的 appUpdateAvailable 事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        version: string;
+        downloadUrl: string;
+        releaseNotes: string;
+      }>).detail;
+      if (detail?.version) setUpdateInfo(detail);
+    };
+    window.addEventListener('appUpdateAvailable', handler);
+    return () => window.removeEventListener('appUpdateAvailable', handler);
+  }, []);
+
+  // 主动触发 Android 原生检查更新
+  const handleCheckUpdate = useCallback(() => {
+    const bridge = (window as unknown as { AndroidBridge?: { checkUpdate?: () => void } }).AndroidBridge;
+    if (bridge?.checkUpdate) {
+      bridge.checkUpdate();
+      toast.info('正在检查更新…');
+    } else {
+      window.open('https://github.com/qq5855144/GitHubM/releases/latest', '_blank');
+    }
+  }, []);
 
   const handleUpdateToken = async () => {
     if (!newToken.trim()) {
@@ -586,10 +627,50 @@ export default function SettingsPage() {
       {/* 关于 */}
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-sm font-semibold text-foreground mb-3">关于</h2>
-        <div className="space-y-1.5 text-xs text-muted-foreground">
-          <p>GitHub 管理器 v{import.meta.env.VITE_APP_VERSION || '1.0.local'}</p>
-          <p>基于 GitHub REST API v2022-11-28</p>
-          <p>使用 React + TypeScript + Tailwind CSS 构建</p>
+        <div className="space-y-3">
+          <div className="space-y-1.5 text-xs text-muted-foreground">
+            <p>GitHub 管理器 v{import.meta.env.VITE_APP_VERSION || '1.0.local'}</p>
+            <p>基于 GitHub REST API v2022-11-28</p>
+            <p>使用 React + TypeScript + Tailwind CSS 构建</p>
+          </div>
+          {/* 有新版本时显示更新提示 */}
+          {updateInfo && (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+              <ArrowUpCircle className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-xs font-medium text-primary">
+                  新版本 {updateInfo.version} 可用
+                </p>
+                {updateInfo.releaseNotes && (
+                  <p className="text-xs text-muted-foreground line-clamp-2 text-pretty">
+                    {updateInfo.releaseNotes}
+                  </p>
+                )}
+              </div>
+              {updateInfo.downloadUrl && (
+                <a
+                  href={updateInfo.downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0"
+                >
+                  <Button size="sm" className="h-7 text-xs px-2 bg-primary text-primary-foreground hover:bg-primary/90">
+                    下载
+                  </Button>
+                </a>
+              )}
+            </div>
+          )}
+          {/* 检查更新按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs border-border"
+            onClick={handleCheckUpdate}
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+            检查更新
+          </Button>
         </div>
       </div>
 
