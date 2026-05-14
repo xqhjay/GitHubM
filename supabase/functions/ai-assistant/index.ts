@@ -4002,11 +4002,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!toolCall) {
         // ── Nudge 机制：仅自主模式下生效 ─────────────────────────────────────
         // 普通对话模式允许 AI 直接给最终文字回答，不强制续跑工具调用
-        // 自主模式下：有步骤在执行（或 totalRound=0 时刚给了 PLAN），且 nudge 未超限时纠正
-        const taskOngoing = isAutoMode && (currentStepId !== null || totalRound === 0);
+        // 自主模式下：只要还在自主模式，无论 currentStepId 是否为 null 都应 nudge，
+        // 防止步骤间歇期（上一步刚结束 currentStepId=null，LLM 还没开始下一步）
+        // 输出文字后直接结束。nudgeCount 上限自身控制退出条件。
+        const taskOngoing = isAutoMode;
         if (taskOngoing && nudgeCount < MAX_NUDGE) {
           nudgeCount++;
-          console.log(`[nudge ${nudgeCount}] totalRound=${totalRound} 无工具调用，注入纠正提示`);
+          console.log(`[nudge ${nudgeCount}] totalRound=${totalRound} currentStepId=${currentStepId} 无工具调用，注入纠正提示`);
           // 保留 LLM 已输出的文字内容，再追加纠正指令
           const displayText = assistantText.replace(/\bPLAN\s*:\s*\{[\s\S]*?\}/i, "").trim();
           if (displayText) await sendChunk(displayText + "\n");
