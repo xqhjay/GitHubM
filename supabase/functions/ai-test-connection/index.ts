@@ -31,12 +31,6 @@ function getEndpointAndHeaders(type: string, apiKey: string, endpoint?: string):
         headers: { Authorization: `Bearer ${apiKey}` },
         model: "qwen2.5-coder-32b-instruct",
       };
-    case "groq":
-      return {
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        model: "llama-3.3-70b-versatile",
-      };
     case "openai":
       return {
         url: "https://api.openai.com/v1/chat/completions",
@@ -147,13 +141,7 @@ Deno.serve(async (req) => {
       let hint = errMsg;
       if (res.status === 401) hint = `API Key 无效或已过期（${errMsg || "401 Unauthorized"}）`;
       else if (res.status === 402) hint = `账户余额不足，请前往平台充值（${errMsg || "402 Payment Required"}）`;
-      else if (res.status === 403) {
-        if (type === "groq") {
-          hint = `Groq 封锁了服务器端 IP：服务器的 IP 被 Groq 限制，无法从此环境访问。建议改用 DeepSeek 或 Qwen，或确认 API Key 格式（gsk_ 开头）和账号状态。（原始错误：${errMsg || "403 Forbidden"}）`;
-        } else {
-          hint = `无访问权限（${errMsg || "403 Forbidden"}）`;
-        }
-      }
+      else if (res.status === 403) hint = `无访问权限（${errMsg || "403 Forbidden"}）`;
       else if (res.status === 429) hint = `请求频率超限，请稍后再试（${errMsg || "429 Too Many Requests"}）`;
       else if (res.status >= 500) hint = `平台服务异常（${res.status}），请稍后重试`;
 
