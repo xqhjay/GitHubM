@@ -557,25 +557,26 @@ export default function SettingsPage() {
           <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
             <Palette className="w-3.5 h-3.5" />强调色方案
           </p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
             {ACCENT_SCHEMES.map((scheme) => (
               <button
                 key={scheme.id}
                 type="button"
                 onClick={() => setAccentScheme(scheme.id)}
+                title={scheme.label}
                 className={cn(
-                  'flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all',
+                  'flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border-2 transition-all',
                   accentSchemeId === scheme.id
                     ? 'border-primary bg-primary/10'
                     : 'border-border bg-secondary/50 hover:border-border/70 hover:bg-secondary'
                 )}
               >
                 <span
-                  className="w-7 h-7 rounded-full shadow-sm ring-2 ring-border/40 shrink-0"
+                  className="w-6 h-6 rounded-full shadow-sm ring-1 ring-border/30 shrink-0"
                   style={{ backgroundColor: scheme.previewColor }}
                 />
                 <span className={cn(
-                  'text-xs font-medium',
+                  'text-[10px] font-medium leading-tight text-center',
                   accentSchemeId === scheme.id ? 'text-primary' : 'text-muted-foreground'
                 )}>
                   {scheme.label}
