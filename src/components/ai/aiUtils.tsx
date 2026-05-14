@@ -82,21 +82,6 @@ export const MODEL_DEFS: ModelDef[] = [
     docsUrl: 'https://dashscope.console.aliyun.com/apiKey',
   },
   {
-    type: 'groq',
-    label: 'Groq（Llama）',
-    desc: '⚠️ 注意：Groq 会封锁服务器端 IP，建议改用 DeepSeek 或 Qwen。如需使用请确保 API Key 有效且账号已激活。',
-    badge: '受限',
-    models: [
-      { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B（推荐）' },
-      { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B（快速）' },
-      { value: 'gemma2-9b-it', label: 'Gemma 2 9B（Google · 轻量）' },
-    ],
-    needKey: true,
-    needEndpoint: false,
-    keyPlaceholder: 'gsk_xxxxxxxxxxxxxxxx',
-    docsUrl: 'https://console.groq.com/keys',
-  },
-  {
     type: 'openai',
     label: 'OpenAI',
     desc: '需填入 OpenAI API Key',
