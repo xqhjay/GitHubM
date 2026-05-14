@@ -2169,11 +2169,40 @@ async function getMergedPRsSince(ctx: GithubContext, since: string): Promise<str
 
 // ── Agent 核心 ───────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(targetBranch?: string): string {
+function buildSystemPrompt(targetBranch?: string, isAutoMode = false): string {
   const branchNote = targetBranch
     ? `**当前目标分支：\`${targetBranch}\`**（所有写入操作默认提交到此分支，除非用户明确指定其他分支）`
     : "（未指定分支，写入时使用仓库默认分支）";
 
+  // ── 普通对话模式 ────────────────────────────────────────────────────────────
+  // 直接回答查询类问题；单步骤操作直接执行；复杂任务先提方案等待确认
+  if (!isAutoMode) {
+    return `你是 GitHub 仓库开发助手，帮助用户管理仓库、查询信息、执行简单操作。
+${branchNote}
+
+==============================
+⚠️ 核心规则（严格遵守）
+==============================
+1. **直接回答**：查询类问题（README、文件内容、Issue 列表、PR 状态等）直接调用工具并给出简洁回答，不输出 PLAN。
+2. **单步骤操作**：明确的单一操作（创建文件、合并PR、关闭Issue 等）直接执行，完成后告知结果。
+3. **复杂任务先提方案**：涉及多个文件修改、新功能开发、重构等复杂任务时，先分析并提出方案选项，等用户确认后再执行。
+4. **允许询问**：不确定用户意图时，可以礼貌地提问澄清，而不是盲目执行。
+5. **工具格式**：每轮只调用一个工具，工具 JSON 单独成行，**绝对不加 markdown 代码围栏（反引号）**。
+6. **禁止伪造**：不要用文字模仿工具执行过程，只输出 JSON。
+7. **格式强制**：工具调用 JSON 中的每个键值必须是字符串，不允许嵌套对象作为值（除 inputs 字段外）。
+
+==============================
+对话行为准则
+==============================
+- **简洁回答**：用 1-3 句话说明操作结果或给出信息，不展开不必要的细节
+- **遇到错误**：告知原因并给出建议，询问用户如何处理，而不是自行决策
+- **不强制 PLAN**：除非用户明确要求"帮我规划任务"或任务确实需要 4+ 步骤，否则不输出 PLAN 格式
+- **工具按需调用**：只调用回答问题所必需的工具，不要过度探索
+- **语气**：像一位熟悉 GitHub 的开发者朋友，自然、简洁，避免机器腔`;
+  } // end !isAutoMode
+
+  // ── 自主 Agent 模式 ────────────────────────────────────────────────────────
+  // 完整多步骤自主执行 prompt：强制 PLAN/STEP、禁止中途询问、自动续跑
   return `你是 GitHub 仓库全流程开发助手。
 ${branchNote}
 
@@ -3205,6 +3234,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let targetBranch: string | undefined;
   let userId = "anonymous";
   let resumeWorkflowId: string | undefined; // 断点恢复：传入 workflow id
+  let isAutoMode = false; // 自主模式开关（前端 auto_mode 字段）
 
   try {
     const body = await req.json();
@@ -3216,6 +3246,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (body.model_config) modelConfig = body.model_config;
     if (body.user_id) userId = body.user_id;
     if (body.resume_workflow_id) resumeWorkflowId = body.resume_workflow_id;
+    // 读取自主模式标志：断点恢复时强制保持自主模式（恢复的任务必然是复杂任务）
+    isAutoMode = !!body.auto_mode || !!resumeWorkflowId;
     if (!messages?.length || !githubToken || !owner || !repo) {
       throw new Error("缺少必要参数：messages, github_token, owner, repo");
     }
@@ -3266,8 +3298,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    const fullMessages: Message[] = [{ role: "system", content: buildSystemPrompt(targetBranch) }, ...messages];
-    console.log(`[main] model=${modelConfig.type} hasApiKey=${!!modelConfig.api_key} owner=${owner} repo=${repo} resume=${isResuming}`);
+    const fullMessages: Message[] = [{ role: "system", content: buildSystemPrompt(targetBranch, isAutoMode) }, ...messages];
+    console.log(`[main] model=${modelConfig.type} hasApiKey=${!!modelConfig.api_key} owner=${owner} repo=${repo} resume=${isResuming} autoMode=${isAutoMode}`);
     
     // 心跳辅助函数：每次调用都向 SSE 写入一条 heartbeat，保持连接活跃
     const heartbeat = () => sendTyped({ type: "heartbeat" });
@@ -3446,9 +3478,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       const toolCall = extractToolCall(assistantText);
       if (!toolCall) {
-        // ── Nudge 机制：任务进行中但 LLM 忘记输出工具 JSON ─────────────────────
-        // 判断条件：有步骤在执行（或 totalRound=0 时刚给了 PLAN），且 nudge 未超限
-        const taskOngoing = currentStepId !== null || totalRound === 0;
+        // ── Nudge 机制：仅自主模式下生效 ─────────────────────────────────────
+        // 普通对话模式允许 AI 直接给最终文字回答，不强制续跑工具调用
+        // 自主模式下：有步骤在执行（或 totalRound=0 时刚给了 PLAN），且 nudge 未超限时纠正
+        const taskOngoing = isAutoMode && (currentStepId !== null || totalRound === 0);
         if (taskOngoing && nudgeCount < MAX_NUDGE) {
           nudgeCount++;
           console.log(`[nudge ${nudgeCount}] totalRound=${totalRound} 无工具调用，注入纠正提示`);
