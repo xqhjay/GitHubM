@@ -2138,6 +2138,47 @@ async function listReleases(ctx: GithubContext, limit = 10): Promise<string> {
   } catch (e) { return diagnose4xx(e, "list_releases"); }
 }
 
+/**
+ * 查询某次工作流运行产生的 Artifacts（构建产物列表）。
+ * 返回每个 artifact 的名称、大小、过期时间，供构建成功后核查产物使用。
+ */
+async function getRunArtifacts(ctx: GithubContext, runId: string): Promise<string> {
+  if (!runId) return "❌ 参数缺失：run_id 为必填";
+  try {
+    const data = await githubRequest(
+      ctx,
+      `/repos/${ctx.owner}/${ctx.repo}/actions/runs/${runId}/artifacts?per_page=30`,
+    ) as { total_count: number; artifacts: Array<{
+      id: number; name: string; size_in_bytes: number;
+      expired: boolean; expires_at: string; archive_download_url: string;
+    }> };
+
+    const { total_count, artifacts } = data;
+    if (!total_count || !artifacts?.length) {
+      return `⚠️ Run #${runId} 没有产生任何 Artifact。\n（工作流可能未配置 upload-artifact 步骤，或产物已过期）`;
+    }
+
+    const formatSize = (bytes: number) => {
+      if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${bytes} B`;
+    };
+
+    const lines = artifacts.map(a => {
+      const expiry = a.expired ? "（已过期）" : `（有效至 ${String(a.expires_at).slice(0, 10)}）`;
+      return `- **${a.name}**  ${formatSize(a.size_in_bytes)}  ${expiry}`;
+    });
+
+    return [
+      `📦 Run #${runId} 共产生 ${total_count} 个 Artifact：`,
+      ...lines,
+      ``,
+      `下载地址需使用已认证的 GitHub 账号访问 Actions 页面，或通过 GitHub CLI：`,
+      `\`gh run download ${runId}\``,
+    ].join("\n");
+  } catch (e) { return diagnose4xx(e, `get_run_artifacts(${runId})`); }
+}
+
 /** 为 PR 提交代码审查（APPROVE / REQUEST_CHANGES / COMMENT） */
 async function submitPRReview(
   ctx: GithubContext,
@@ -2625,6 +2666,8 @@ ${branchNote}
     {"tool":"run_lint","branch":"main"}
 45. 安全扫描（扫描硬编码密钥/eval/SQL注入/XSS等常见安全隐患）：
     {"tool":"check_security","path":"src/"}
+46. 查询某次运行产生的 Artifacts（构建产物列表、大小、有效期）：
+    {"tool":"get_run_artifacts","run_id":"12345678"}
 
 🔀 **PR 高级操作**
 46. 关闭 PR（可附带评论）：{"tool":"close_pr","pull_number":"42","comment":"改用 PR #45，关闭此 PR"}
@@ -2780,6 +2823,55 @@ ${branchNote}
   **修复完成后**，回复"重新构建"即可让我自动触发 CI 并验证结果。
   ---
 
+✅ **构建成功后验证产物（必须执行）**：
+  当任何构建任务成功后（trigger_and_monitor_build 或 check_run_status 返回成功），**必须**按以下顺序完成收尾工作，不得省略：
+
+  **步骤 1 — 确认 Artifacts**
+  - trigger_and_monitor_build 已在返回值中自动附带 Artifacts 列表，直接读取即可。
+  - 若使用 check_run_status 触发构建成功，需额外调用：
+    {"tool":"get_run_artifacts","run_id":"<成功的 run_id>"}
+  - 根据结果判断：
+    - 有产物 → 记录名称和大小，后续在任务总结中展示
+    - 无产物（工作流未配置 upload-artifact）→ 告知用户构建成功但无 Artifact，提示可在 Actions 页面查看日志
+    - 产物已过期 → 告知用户需重新触发构建
+
+  **步骤 2 — 确认 Releases（若工作流会创建 Release）**
+  - 若本次构建工作流包含发布步骤（如 gh release create、actions/create-release 等），调用：
+    {"tool":"get_latest_release"}
+  - 对比 Release 的 published_at 与本次构建时间，确认是否为本次产生的新 Release。
+  - 有新 Release → 在任务总结中展示版本号和链接
+  - 无 Release → 任务总结中注明"本次工作流未创建 Release"
+
+  **步骤 3 — 生成开发任务总结（必须输出，固定格式）**
+  完成上述验证后，**必须**输出以下格式的任务总结，然后结束任务：
+
+  ---
+  ## 🎉 任务完成
+
+  **构建结果**：成功 ✅  **Run ID**：<run_id>  **分支**：\`<分支名>\`
+
+  **构建产物**：
+  - <artifact 名称>（<大小>，有效至 <日期>）
+  （若无 Artifact：本次工作流未上传构建产物）
+
+  **Release**：<版本号> — <链接>
+  （若无 Release：本次工作流未创建 Release）
+
+  **任务概要**：
+  <用 2-4 句话描述本次任务：修改了哪些文件、触发了哪个工作流、构建产物的用途>
+
+  ---
+
+  ⚠️ **工作流编写规范**：创建或修改构建工作流时，必须包含 \`actions/upload-artifact\` 步骤，
+  确保每次构建都会生成可下载的产物。示例：
+  \`\`\`yaml
+  - name: 上传构建产物
+    uses: actions/upload-artifact@v4
+    with:
+      name: app-release
+      path: app/build/outputs/apk/release/*.apk
+  \`\`\`
+
 🔧 **修改工作流文件**：
   1. list_workflows 找到 workflow_id 及路径
   2. read_file 读取 .github/workflows/xxx.yml
@@ -2934,6 +3026,7 @@ ${branchNote}
 - **代码审查用 auto_review；不要手动逐行分析变更文件，auto_review 会自动读取文件并输出结构化报告**
 - **触发工作流后必须用 check_run_status 等待结果，不要用 get_workflow_runs 手动轮询；build_apk 类型若超时需再调一次；startup_failure 说明工作流文件有语法问题，直接修复**
 - **trigger_workflow 已内置自动修复**：若缺少 workflow_dispatch，系统会自动添加并重试，无需手动干预
+- **构建成功必须验证产物**：构建任务成功后，必须按"构建成功后验证产物"工作流完成 Artifacts + Release 确认，并输出固定格式任务总结，然后才能结束任务
 - **Release 自动化**：收到发版/生成changelog指令时，必须按「Release 自动化工作流」五步完整执行，不得跳步或提前结束
 - commit message 使用中文，遵循 Conventional Commits（fix/feat/ci/chore/docs）
 - 对话语言：中文；操作完成后给出简洁总结
@@ -3339,7 +3432,20 @@ async function triggerAndMonitorBuild(
     return `⏳ 构建超时（30min 未完成），请稍后用 get_workflow_runs 手动查询工作流 ${workflowId}`;
   }
   if (result.conclusion === "success") {
-    return `✅ **构建成功**\n- 工作流：${workflowId}\n- 分支：\`${targetRef}\`\n- Run ID：${result.runId}`;
+    // 自动查询本次构建产生的 Artifacts
+    let artifactsInfo = "";
+    try {
+      artifactsInfo = await getRunArtifacts(ctx, String(result.runId));
+    } catch { artifactsInfo = "（Artifacts 查询失败，请用 get_run_artifacts 手动查询）"; }
+
+    return [
+      `✅ **构建成功**`,
+      `- 工作流：${workflowId}`,
+      `- 分支：\`${targetRef}\``,
+      `- Run ID：${result.runId}`,
+      ``,
+      artifactsInfo,
+    ].join("\n");
   }
 
   // ── 4. 构建失败 → 返回日志供 LLM 分析（由外层重试机制驱动修复循环）────────
@@ -3483,6 +3589,7 @@ function executeTool(
       ctx, p("workflow_id"), p("ref"), p("branch") || targetBranch,
       p("max_fix_attempts") ? parseInt(p("max_fix_attempts"), 10) : 3,
     );
+    case "get_run_artifacts":        return getRunArtifacts(ctx, p("run_id"));
     default: return Promise.resolve(`未知工具: ${String(call.tool)}`);
   }
 }
@@ -3849,6 +3956,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       create_release: "创建 Release", list_releases: "列出 Release",
       submit_pr_review: "PR 代码审查",
       get_latest_release: "获取最新 Release", get_merged_prs_since: "获取已合并 PR",
+      get_run_artifacts: "查询构建产物",
     };
     // 每批最多 20 轮工具调用；最多自动续跑 3 批，总上限 60 轮
     const MAX_ROUNDS_PER_BATCH = 20;
