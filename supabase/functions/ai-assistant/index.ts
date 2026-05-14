@@ -443,8 +443,8 @@ async function readFile(
     const allLines = fullContent.split("\n");
     const totalLines = allLines.length;
     const MAX_CHUNK = 500;
-    // 自动全文读取阈值：不带行范围且文件 ≤ 3000 行时，自动分段拼接完整返回
-    const AUTO_FULL_READ_LIMIT = 3000;
+    // 自动全文读取阈值：不带行范围且文件 ≤ 5000 行时，自动分段拼接完整返回
+    const AUTO_FULL_READ_LIMIT = 5000;
 
     const fileSizeKB = data.size ? Math.round(data.size / 1024) : null;
     const sizeNote = fileSizeKB && fileSizeKB > 100 ? ` | 文件大小: ${fileSizeKB}KB` : "";
@@ -2490,12 +2490,12 @@ ${branchNote}
 ==============================
 
 **read_file 自动全文模式（优先使用）**：
-- 文件 ≤ 3000 行时，直接调用 \`{"tool":"read_file","path":"src/App.tsx"}\`（不带行范围），系统自动一次性返回完整内容
-- 文件 > 3000 行时，系统返回第一段并附带**所有后续段落的调用列表**，必须逐段执行完毕
+- 文件 ≤ 5000 行时，直接调用 \`{"tool":"read_file","path":"src/App.tsx"}\`（不带行范围），系统自动一次性返回完整内容
+- 文件 > 5000 行时，系统返回第一段并附带**所有后续段落的调用列表**，必须逐段执行完毕
 
 **识别大文件**：文件 > 200 行或 > 100KB 时，视为大文件，必须分段读取。
 
-**标准流程（文件 > 3000 行时）**：
+**标准流程（文件 > 5000 行时）**：
 1. 先调用 get_file_info 获取总行数和大小（零内容消耗、快速）
    {"tool":"get_file_info","path":"src/App.tsx"}
 2. 根据总行数制定分段计划：每段 500 行，计算需要几次 read_file
@@ -3441,7 +3441,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       catch (e) { toolResult = `工具执行出错：${(e as Error).message}`; }
       
       const elapsedMs = Date.now() - startTime;
-      const toolFailed = toolResult.includes("出错") || toolResult.includes("失败");
+      const toolFailed = toolResult.startsWith("工具执行出错：");
       const toolStatus = toolFailed ? "fail" : "success";
       
       await sendTyped({ 
@@ -3509,9 +3509,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       // 将原始 assistantText（含 PLAN/STEP 标记）压入历史，保持上下文完整性
       fullMessages.push({ role: "assistant", content: rawText });
-      // 工具结果注入时截断至 1500 字符，防止超长结果撑爆上下文窗口
-      const truncatedResult = toolResult.length > 1500
-        ? toolResult.slice(0, 1500) + `\n…（内容已截断，原始长度 ${toolResult.length} 字符，如需完整内容请重新调用工具并缩小查询范围）`
+      // 工具结果注入截断：文件内容类工具允许 15000 字符（约 300 行代码），其他工具 4000 字符
+      const fileContentTools = ["read_file", "batch_read", "grep_in_file", "get_file_info"];
+      const resultLimit = fileContentTools.includes(toolCall.tool) ? 15000 : 4000;
+      const truncatedResult = toolResult.length > resultLimit
+        ? toolResult.slice(0, resultLimit) + `\n…（内容已截断，原始长度 ${toolResult.length} 字符，如需完整内容请重新调用工具并缩小查询范围）`
         : toolResult;
       fullMessages.push({
         role: "user",
