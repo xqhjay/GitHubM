@@ -231,6 +231,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
+         * 强调色方案切换时由 ThemeContext 调用，更新最近任务栏卡片的主色调。
+         * Android 5.0+ 通过 setTaskDescription() 可动态改变任务卡头部颜色。
+         *
+         * 调用：window.AndroidBridge.notifyAccentIcon(primaryHex: string)
+         * @param primaryHex 当前方案的主色调 hex 值，如 "#7c3aed"
+         */
+        @JavascriptInterface
+        fun notifyAccentIcon(primaryHex: String) {
+            runOnUiThread {
+                applyTaskDescriptionColor(primaryHex)
+            }
+        }
+
+        /**
          * ArtifactsPage 调用：传原始 GitHub URL + token，由原生完成"解析重定向 → 下载"流程。
          *
          * GitHub 所有下载链接（releases/archive/artifacts）均会 302 重定向到
@@ -644,6 +658,10 @@ class MainActivity : AppCompatActivity() {
 
         // 读取上次持久化的主题色，并同步应用到启动画面各元素
         applySavedAccentToSplash()
+        // 冷启动时同步最近任务栏卡片颜色（与主题色方案保持一致）
+        val savedHexForTask = getSharedPreferences("gm_prefs", MODE_PRIVATE)
+            .getString("accent_hex", "#7c3aed") ?: "#7c3aed"
+        applyTaskDescriptionColor(savedHexForTask)
         // 启动打字动画（与 WebView 加载并行进行）
         startSplashTypingAnimation()
 
@@ -843,22 +861,15 @@ class MainActivity : AppCompatActivity() {
                     }
                     runOnUiThread { applyNativeTheme(resolved) }
 
-                    // 同时读取强调色方案，将选中色同步为存储的 previewColor
-                    val accentMap = mapOf(
-                        "purple" to "#8B4CF8",
-                        "blue"   to "#1d6be3",
-                        "green"  to "#16a34a",
-                        "orange" to "#f97316",
-                        "rose"   to "#e11d48",
-                        "cyan"   to "#0891b2",
-                    )
-                    view?.evaluateJavascript(
-                        "(function(){ return localStorage.getItem('github_manager_accent') || 'purple'; })()"
-                    ) { accentResult ->
-                        val accentId = accentResult?.trim('"') ?: "purple"
-                        val hex = accentMap[accentId] ?: "#8B4CF8"
+                    // 读取强调色：优先使用 SharedPreferences 中 notifyAccent 已持久化的 hex，
+                    // 避免维护枚举映射表——无论增加多少颜色方案都无需改原生代码
+                    val savedAccentHex = getSharedPreferences("gm_prefs", MODE_PRIVATE)
+                        .getString("accent_hex", null)
+
+                    if (savedAccentHex != null) {
+                        // SharedPreferences 有存储值：直接使用，跳过 localStorage 读取
                         try {
-                            val color = Color.parseColor(hex)
+                            val color = Color.parseColor(savedAccentHex)
                             val isDark = darkTheme
                             val unselected = if (isDark) 0xFF9292A8.toInt() else 0xFF64748B.toInt()
                             val iconColors = android.content.res.ColorStateList(
@@ -869,10 +880,59 @@ class MainActivity : AppCompatActivity() {
                                 currentAccentColor = color
                                 bottomNav.itemIconTintList = iconColors
                                 bottomNav.itemTextColor   = iconColors
-                                // Active Indicator 透明：选中仅靠图标/文字强调色区分
-                                bottomNav.itemActiveIndicatorColor = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+                                bottomNav.itemActiveIndicatorColor =
+                                    android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+                                // 同步更新最近任务栏卡片颜色
+                                applyTaskDescriptionColor(savedAccentHex)
                             }
-                        } catch (_: Exception) { /* 静默忽略 */ }
+                        } catch (_: Exception) { /* 非法 hex，静默忽略 */ }
+                    } else {
+                        // 首次安装/未存储：读 localStorage 并写入 SharedPreferences
+                        view?.evaluateJavascript(
+                            "(function(){ return localStorage.getItem('github_manager_accent') || 'purple'; })()"
+                        ) { accentResult ->
+                            val accentId = accentResult?.trim('"') ?: "purple"
+                            // 完整映射表，与 ThemeContext.tsx ACCENT_SCHEMES 保持同步
+                            val accentMap = mapOf(
+                                "purple"  to "#7c3aed",
+                                "blue"    to "#1d6be3",
+                                "green"   to "#16a34a",
+                                "orange"  to "#f97316",
+                                "rose"    to "#e11d48",
+                                "cyan"    to "#0891b2",
+                                "indigo"  to "#4f46e5",
+                                "sky"     to "#0ea5e9",
+                                "emerald" to "#059669",
+                                "teal"    to "#0d9488",
+                                "amber"   to "#d97706",
+                                "pink"    to "#ec4899",
+                                "violet"  to "#8b5cf6",
+                                "gold"    to "#ca8a04",
+                                "coral"   to "#f0572a",
+                                "lime"    to "#65a30d",
+                            )
+                            val hex = accentMap[accentId] ?: "#7c3aed"
+                            // 持久化，下次冷启动直接读取
+                            getSharedPreferences("gm_prefs", MODE_PRIVATE)
+                                .edit().putString("accent_hex", hex).apply()
+                            try {
+                                val color = Color.parseColor(hex)
+                                val isDark = darkTheme
+                                val unselected = if (isDark) 0xFF9292A8.toInt() else 0xFF64748B.toInt()
+                                val iconColors = android.content.res.ColorStateList(
+                                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                                    intArrayOf(color, unselected)
+                                )
+                                runOnUiThread {
+                                    currentAccentColor = color
+                                    bottomNav.itemIconTintList = iconColors
+                                    bottomNav.itemTextColor   = iconColors
+                                    bottomNav.itemActiveIndicatorColor =
+                                        android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+                                    applyTaskDescriptionColor(hex)
+                                }
+                            } catch (_: Exception) { /* 静默忽略 */ }
+                        }
                     }
                 }
             }
@@ -920,8 +980,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 根据 Web 端传来的主题信号，同步更新原生系统 UI 颜色：
-     *  - 状态栏背景色 & 图标颜色（深色主题用浅色图标，浅色主题用深色图标）
+     * 将最近任务栏（Overview）卡片头部颜色更新为当前强调色。
+     * Android 5.0+ (API 21) 通过 ActivityManager.TaskDescription 实现。
+     * API 33+ 对应使用新构造函数（仅设 primaryColor，其他参数用默认值）。
+     */
+    private fun applyTaskDescriptionColor(hex: String) {
+        val color = ThemeUtils.parseColorSafe(hex) ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // API 33+：TaskDescription.Builder
+                setTaskDescription(
+                    android.app.ActivityManager.TaskDescription.Builder()
+                        .setPrimaryColor(color)
+                        .build()
+                )
+            } else {
+                // API 21–32：旧构造函数（label=null 保持应用名，icon=null 保持启动图标）
+                @Suppress("DEPRECATION")
+                setTaskDescription(
+                    android.app.ActivityManager.TaskDescription(null, null, color)
+                )
+            }
+        } catch (_: Exception) { /* 旧 ROM 兼容，静默忽略 */ }
+    }
+
+    /**
+     * 根据 Web 端传来的主题信号，同步更新原生系统 UI 颜色：     *  - 状态栏背景色 & 图标颜色（深色主题用浅色图标，浅色主题用深色图标）
      *  - 系统导航栏（手势条/按键条）背景色
      *  - 底部导航栏背景色及图标/文字颜色
      *
