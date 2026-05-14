@@ -375,17 +375,6 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
             </div>
           )}
 
-          {/* Groq 免费说明 */}
-          {draft.type === 'groq' && (
-            <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
-              <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>Groq 提供免费 API 额度，响应速度极快（数百 token/s）。</p>
-                <p>Llama 3.3 70B 为首选，适合需要极低延迟的代码生成场景。</p>
-              </div>
-            </div>
-          )}
-
           {/* 超时时间设置 */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
