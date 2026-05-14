@@ -2770,7 +2770,14 @@ async function callLLM(
     let friendly = errMsg;
     if (res.status === 401) friendly = `API Key 无效或已过期（${errMsg || "401 Unauthorized"}）`;
     else if (res.status === 402) friendly = `账户余额不足，请前往平台充值（${errMsg || "402 Payment Required"}）`;
-    else if (res.status === 403) friendly = `无访问权限（${errMsg || "403 Forbidden"}）`;
+    else if (res.status === 403) {
+      // Groq 会封锁来自数据中心（AWS/GCP 等）的请求，通过服务器端调用会触发此错误
+      if (cfg.type === "groq") {
+        friendly = `Groq 封锁了服务器端 IP（数据中心 IP 被限制访问），建议改用 DeepSeek 或 Qwen。若坚持使用 Groq，请确认 API Key 格式为 gsk_ 开头且账号已在 console.groq.com 激活。（原始错误：${errMsg || "403 Forbidden"}）`;
+      } else {
+        friendly = `无访问权限（${errMsg || "403 Forbidden"}）`;
+      }
+    }
     else if (res.status === 429) friendly = `请求频率超限，请稍后再试（${errMsg || "429 Too Many Requests"}）`;
     else if (res.status >= 500) friendly = `平台服务异常（${res.status}），请稍后重试`;
     const fullMsg = `LLM 调用失败（HTTP ${res.status}）：${friendly}`;
