@@ -2696,7 +2696,18 @@ GitHub API 4xx 错误自愈规则
 }
 
 interface Message { role: "user" | "assistant" | "system"; content: string; }
-interface ChatChunk { choices: Array<{ delta: { content?: string; reasoning_content?: string }; finish_reason: string | null }>; }
+interface ChatChunk {
+  choices: Array<{ delta: { content?: string; reasoning_content?: string }; finish_reason: string | null }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+}
+
+interface LLMUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  model: string;
+  type: string;
+}
 
 async function callLLM(
   cfg: ModelConfig,
@@ -2704,6 +2715,7 @@ async function callLLM(
   messages: Message[],
   onThinkingChunk?: (chunk: string) => Promise<void>,
   onHeartbeat?: () => Promise<void>,
+  onUsage?: (usage: LLMUsage) => void,
 ): Promise<string> {
   const { url, headers, bodyExtra } = buildLLMRequest(cfg, platformKey);
   console.log(`[callLLM] type=${cfg.type} model=${cfg.model || "default"} url=${url}`);
@@ -2764,6 +2776,7 @@ async function callLLM(
   const decoder = new TextDecoder();
   let full = "", buf = "";
   let hadReasoningContent = false; // 标记是否收到过 reasoning_content（思考过程）
+  let capturedUsage: ChatChunk["usage"] | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -2776,6 +2789,8 @@ async function callLLM(
       if (raw === "[DONE]") continue;
       try {
         const chunk = JSON.parse(raw) as ChatChunk;
+        // 捕获 usage 信息（部分平台在最后一个 chunk 中返回）
+        if (chunk.usage?.total_tokens) capturedUsage = chunk.usage;
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
 
@@ -2791,6 +2806,33 @@ async function callLLM(
         // ── 正式内容 ──
         full += delta.content ?? "";
       } catch { /* 跳过非 JSON 行 */ }
+    }
+  }
+
+  // 回调 usage（有平台提供精确值则用；否则基于字符数估算）
+  if (onUsage) {
+    const modelName = cfg.model || "default";
+    if (capturedUsage?.total_tokens) {
+      onUsage({
+        prompt_tokens: capturedUsage.prompt_tokens ?? 0,
+        completion_tokens: capturedUsage.completion_tokens ?? 0,
+        total_tokens: capturedUsage.total_tokens,
+        model: modelName,
+        type: cfg.type,
+      });
+    } else {
+      // 粗估：平均 1 token ≈ 3 字符（中英混合）
+      const inputChars = messages.reduce((s, m) => s + (typeof m.content === "string" ? m.content.length : 0), 0);
+      const outputChars = full.length;
+      const est_prompt = Math.ceil(inputChars / 3);
+      const est_completion = Math.ceil(outputChars / 3);
+      onUsage({
+        prompt_tokens: est_prompt,
+        completion_tokens: est_completion,
+        total_tokens: est_prompt + est_completion,
+        model: modelName,
+        type: cfg.type,
+      });
     }
   }
 
@@ -3424,8 +3466,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await sendTyped({ type: "think_chunk", content: chunk });
       };
 
+      // usage 回调：收到 LLM token 用量后发送 SSE usage 事件
+      const onUsageCb = (usage: LLMUsage) => {
+        sendTyped({ type: "usage", prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens, total_tokens: usage.total_tokens, model: usage.model, providerType: usage.type }).catch(() => { /* ignore send error */ });
+      };
+
       try {
-        assistantText = await callLLM(modelConfig, platformKey, fullMessages, onThinkingChunk, heartbeat);
+        assistantText = await callLLM(modelConfig, platformKey, fullMessages, onThinkingChunk, heartbeat, onUsageCb);
         if (thinkingStarted) await sendTyped({ type: "think_end" });
       } catch (e) {
         const errMsg = (e as Error).message ?? String(e);

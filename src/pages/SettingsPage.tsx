@@ -21,6 +21,7 @@ import {
   ArrowUpCircle,
   Bot,
   CheckCircle2,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +52,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { MODEL_DEFS, loadProviderKey, saveProviderKey } from '@/components/ai/aiUtils';
+import { getProviderStats, getTotalRequestCount, clearAllUsage, type ProviderStats } from '@/components/ai/usageStats';
 
 const themeOptions: { value: ThemeMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { value: 'light', label: '浅色', Icon: Sun },
@@ -267,6 +269,17 @@ export default function SettingsPage() {
     } else {
       toast.info(`${MODEL_DEFS.find(m => m.type === type)?.label ?? type} API Key 已清除`);
     }
+  };
+
+  // ── AI 用量统计 ─────────────────────────────────────────────────────
+  const [usageStats, setUsageStats] = useState<ProviderStats[]>(() => getProviderStats());
+  const [totalRequests, setTotalRequests] = useState(() => getTotalRequestCount());
+
+  const handleClearUsage = () => {
+    clearAllUsage();
+    setUsageStats([]);
+    setTotalRequests(0);
+    toast.success('AI 用量统计已清除');
   };
 
   // ── 版本更新检查（仅 Android 环境） ─────────────────────────────────
@@ -733,6 +746,80 @@ export default function SettingsPage() {
             );
           })}
         </div>
+      </div>
+
+      {/* AI 用量统计 */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-primary" />
+            AI 用量统计
+          </h2>
+          {usageStats.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs border-border text-muted-foreground hover:text-destructive hover:border-destructive/50"
+              onClick={handleClearUsage}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              清除统计
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          近 30 天 AI 对话 Token 用量，数据存储在本地。费用估算仅供参考。
+        </p>
+
+        {usageStats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+            <BarChart3 className="w-8 h-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">暂无用量记录</p>
+            <p className="text-xs text-muted-foreground/70">使用 AI 助手后将自动统计 Token 用量</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* 总览行 */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+              <Info className="w-3.5 h-3.5 shrink-0" />
+              <span>共 <span className="font-medium text-foreground">{totalRequests}</span> 次对话，覆盖 <span className="font-medium text-foreground">{usageStats.length}</span> 个平台</span>
+            </div>
+            {/* 按平台分组 */}
+            <div className="space-y-2">
+              {usageStats.map(stat => {
+                const providerLabel = MODEL_DEFS.find(m => m.type === stat.providerType)?.label ?? stat.providerType;
+                return (
+                  <div key={stat.providerType} className="border border-border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-foreground">{providerLabel}</span>
+                      <span className="text-xs text-muted-foreground">{stat.requestCount} 次对话</span>
+                    </div>
+                    {/* Token 明细 */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-muted-foreground">输入 Tokens</span>
+                        <span className="text-sm font-mono font-medium text-foreground">{stat.promptTokens.toLocaleString()}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-muted-foreground">输出 Tokens</span>
+                        <span className="text-sm font-mono font-medium text-foreground">{stat.completionTokens.toLocaleString()}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-muted-foreground">合计 Tokens</span>
+                        <span className="text-sm font-mono font-medium text-primary">{stat.totalTokens.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    {/* 费用估算 */}
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground border-t border-border/50 pt-2 mt-1">
+                      <Info className="w-3 h-3 shrink-0" />
+                      <span>费用估算：<span className="font-medium text-foreground">$0.00</span>（免费额度，仅供参考）</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 危险操作 */}

@@ -2,7 +2,7 @@
 import { memo, useState, useEffect } from 'react';
 import {
   Eye, EyeOff, RefreshCw, RotateCw,
-  CheckCircle2, XCircle, Sparkles, Timer,
+  CheckCircle2, XCircle, Sparkles, Timer, Wifi,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 type FetchState = 'idle' | 'loading' | 'success' | 'error';
+type TestState = 'idle' | 'testing' | 'success' | 'error';
 
 interface ModelSettingsDialogProps {
   open: boolean;
@@ -49,6 +50,9 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
   const [showKey, setShowKey] = useState(false);
   const [fetchState, setFetchState] = useState<FetchState>('idle');
   const [fetchError, setFetchError] = useState('');
+  // 测试连接状态
+  const [testState, setTestState] = useState<TestState>('idle');
+  const [testResult, setTestResult] = useState<{ elapsedMs?: number; error?: string }>({});
   // 动态获取的模型列表（每个 type 独立缓存）
   const [fetchedModels, setFetchedModels] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const def = getModelDef(draft.type);
@@ -58,6 +62,8 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
       setDraft(config);
       setFetchState('idle');
       setFetchError('');
+      setTestState('idle');
+      setTestResult({});
     }
   }, [open, config]);
 
@@ -67,6 +73,41 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
     setDraft({ type, api_key: savedKey || undefined });
     setFetchState('idle');
     setFetchError('');
+    setTestState('idle');
+    setTestResult({});
+  };
+
+  const handleTestConnection = async () => {
+    if (!draft.api_key?.trim()) { toast.error('请先填写 API Key'); return; }
+    setTestState('testing');
+    setTestResult({});
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-test-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          type: draft.type,
+          api_key: draft.api_key,
+          model: draft.model,
+          endpoint: draft.endpoint,
+        }),
+      });
+      const data = await res.json() as { success: boolean; elapsedMs?: number; error?: string };
+      if (data.success) {
+        setTestState('success');
+        setTestResult({ elapsedMs: data.elapsedMs });
+      } else {
+        setTestState('error');
+        setTestResult({ error: data.error || '连接失败' });
+      }
+    } catch (e) {
+      setTestState('error');
+      setTestResult({ error: (e as Error).message || '网络请求失败' });
+    }
   };
 
   const handleFetchModels = async () => {
@@ -236,6 +277,36 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
               <p className="text-xs text-muted-foreground">
                 Key 仅保存在本地，通过服务端安全转发，不会上传至第三方
               </p>
+              {/* 测试连接按钮（文心无需测试） */}
+              {draft.type !== 'wenxin' && (
+                <div className="flex flex-col gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-9 gap-2"
+                    onClick={handleTestConnection}
+                    disabled={testState === 'testing' || !draft.api_key?.trim()}
+                  >
+                    {testState === 'testing' ? (
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : testState === 'success' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    ) : testState === 'error' ? (
+                      <XCircle className="w-3.5 h-3.5 text-destructive" />
+                    ) : (
+                      <Wifi className="w-3.5 h-3.5" />
+                    )}
+                    {testState === 'testing' ? '测试中…' : testState === 'success' ? `连接成功 (${testResult.elapsedMs}ms)` : testState === 'error' ? '连接失败' : '测试连接'}
+                  </Button>
+                  {testState === 'error' && testResult.error && (
+                    <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                      <XCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+                      <p className="text-xs text-destructive break-words">{testResult.error}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

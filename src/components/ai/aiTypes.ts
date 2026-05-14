@@ -150,7 +150,8 @@ export type SSEChunk =
   | { type: 'status_info'; message: string }
   | { type: 'status_warning'; message: string }
   | { type: 'file_request'; id: string; filename: string; description: string; mime_types?: string }
-  | { type: 'timeout'; workflow_id?: string };
+  | { type: 'timeout'; workflow_id?: string }
+  | { type: 'usage'; prompt_tokens: number; completion_tokens: number; total_tokens: number; model: string; providerType: string };
 
 // ── 模型配置 ────────────────────────────────────────────────────────────────────
 

@@ -35,6 +35,7 @@ import {
 } from '@/components/ai/aiUtils';
 import { upsertSession, insertMessages } from '@/components/ai/aiSupabase';
 import type { Message, ModelConfig, ChatSession, ChatSessionMessage, ToolHistoryItem, TaskPlanStep, InlineStep, InlineTool, Attachment, FileRequest } from '@/components/ai/aiTypes';
+import { appendUsageRecord } from '@/components/ai/usageStats';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -729,6 +730,17 @@ export default function AiAssistantPage() {
                 },
               },
             });
+            break;
+          }
+          case 'usage': {
+            // 收到 token 用量：写入 localStorage，静默处理（不影响主流程）
+            appendUsageRecord(
+              chunk.providerType,
+              chunk.model,
+              chunk.prompt_tokens,
+              chunk.completion_tokens,
+              chunk.total_tokens,
+            );
             break;
           }
         }
