@@ -582,9 +582,16 @@ async function patchFile(
     const { content: fullContent, sha: fileSha, totalLines } = fetched;
     const allLines = fullContent.split("\n");
 
-    // 参数边界校验
+    // 参数边界校验（智能诊断）
     if (startLine < 1 || endLine < startLine || startLine > totalLines) {
-      return `行号超出范围：文件共 ${totalLines} 行，请求 ${startLine}–${endLine}`;
+      const diagHint =
+        startLine > totalLines
+          ? `⚠️ 行号越界：文件当前共 ${totalLines} 行，但请求修改第 ${startLine} 行。` +
+            `\n📋 修复方案：先调用 {"tool":"get_file_info","path":"${filePath}"} 获取最新行数，再重新规划 patch 范围。`
+          : endLine < startLine
+            ? `⚠️ 参数错误：end_line(${endLine}) < start_line(${startLine})，请检查参数。`
+            : `⚠️ 行号无效：start_line 必须 ≥ 1，当前值 ${startLine}。`;
+      return diagHint;
     }
     const safeEnd = Math.min(endLine, totalLines);
 
@@ -641,7 +648,32 @@ async function patchFile(
       `commit: ${commitSha}，信息：${commitMessage}\n\n` +
       `📋 修改验证快照（- 已删除  + 新增  上下文 ${CONTEXT} 行）：\n\`\`\`diff\n${snapLines.join("\n")}\n\`\`\``
     );
-  } catch (e) { return diagnose4xx(e, "patch_file"); }
+  } catch (e) {
+    // ── 智能错误诊断 ────────────────────────────────────────────────────────
+    const errMsg = (e as Error).message ?? String(e);
+    // SHA 冲突（409）：文件在本次操作期间被他人修改
+    if (errMsg.includes("409") || errMsg.includes("conflict") || errMsg.includes("sha")) {
+      return (
+        `❌ patch_file 失败（SHA 冲突）：文件 "${filePath}" 在你读取后已被修改，本地缓存的 SHA 已过期。\n` +
+        `📋 修复方案（按顺序执行）：\n` +
+        `  1. 重新读取文件获取最新内容和 SHA：{"tool":"read_file","path":"${filePath}"}\n` +
+        `  2. 根据最新内容重新定位目标行号\n` +
+        `  3. 再次调用 patch_file 写入修改`
+      );
+    }
+    // 分支保护（422）：无法直接 push
+    if (errMsg.includes("422") || errMsg.includes("branch protection") || errMsg.includes("protected branch")) {
+      return (
+        `❌ patch_file 失败（分支保护）：分支 "${ctx.repo}" 启用了保护规则，禁止直接推送。\n` +
+        `📋 修复方案：\n` +
+        `  1. 新建临时分支：{"tool":"create_branch","branch":"fix/patch-${Date.now()}","from":"main"}\n` +
+        `  2. 在新分支上执行 patch_file（指定 branch 参数）\n` +
+        `  3. 创建 PR：{"tool":"create_pr","title":"...","head":"fix/patch-xxx","base":"main","body":"..."}`
+      );
+    }
+    // 其他错误走通用诊断
+    return diagnose4xx(e, "patch_file");
+  }
 }
 
 
@@ -2954,6 +2986,7 @@ async function dbCreateWorkflow(
         total_steps: steps.length,
         done_steps: 0,
         fail_steps: 0,
+        interrupted: false,
       })
       .select("id")
       .maybeSingle();
@@ -2991,6 +3024,48 @@ async function dbUpdateStep(
   } catch (e) { console.error("[db] updateStep exception", (e as Error).message); }
 }
 
+/** 保存 messages 快照（用于批次中断后恢复） */
+async function dbSaveSnapshot(
+  sb: ReturnType<typeof createClient>,
+  workflowId: string,
+  messages: Message[],
+  lastStepId: string | null,
+  interrupted: boolean,
+) {
+  try {
+    // 保留最近 60 条消息，防止快照过大（jsonb 列最大 1GB，但实际控制合理大小）
+    const snapshot = messages.slice(-60);
+    await sb
+      .from("task_workflows")
+      .update({
+        messages_snapshot: snapshot,
+        last_step_id: lastStepId,
+        interrupted,
+      })
+      .eq("id", workflowId);
+  } catch (e) { console.error("[db] saveSnapshot exception", (e as Error).message); }
+}
+
+/** 加载工作流快照（用于断点恢复） */
+async function dbLoadSnapshot(
+  sb: ReturnType<typeof createClient>,
+  workflowId: string,
+): Promise<{ messages: Message[]; lastStepId: string | null; taskSummary: string } | null> {
+  try {
+    const { data, error } = await sb
+      .from("task_workflows")
+      .select("messages_snapshot, last_step_id, task_summary, interrupted")
+      .eq("id", workflowId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      messages: (data.messages_snapshot as Message[]) ?? [],
+      lastStepId: (data.last_step_id as string) ?? null,
+      taskSummary: (data.task_summary as string) ?? "",
+    };
+  } catch (e) { console.error("[db] loadSnapshot exception", (e as Error).message); return null; }
+}
+
 /** 完成工作流（统计成功/失败步骤数） */
 async function dbFinishWorkflow(
   sb: ReturnType<typeof createClient>,
@@ -3007,7 +3082,7 @@ async function dbFinishWorkflow(
     const status = fail > 0 ? "partial_fail" : "done";
     await sb
       .from("task_workflows")
-      .update({ status, done_steps: done, fail_steps: fail, finished_at: new Date().toISOString() })
+      .update({ status, done_steps: done, fail_steps: fail, finished_at: new Date().toISOString(), interrupted: false })
       .eq("id", workflowId);
   } catch (e) { console.error("[db] finishWorkflow exception", (e as Error).message); }
 }
@@ -3129,6 +3204,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let modelConfig: ModelConfig = { type: "wenxin" };
   let targetBranch: string | undefined;
   let userId = "anonymous";
+  let resumeWorkflowId: string | undefined; // 断点恢复：传入 workflow id
 
   try {
     const body = await req.json();
@@ -3139,6 +3215,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     targetBranch = body.target_branch || undefined;
     if (body.model_config) modelConfig = body.model_config;
     if (body.user_id) userId = body.user_id;
+    if (body.resume_workflow_id) resumeWorkflowId = body.resume_workflow_id;
     if (!messages?.length || !githubToken || !owner || !repo) {
       throw new Error("缺少必要参数：messages, github_token, owner, repo");
     }
@@ -3167,18 +3244,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   (async () => {
     try {
+    // Supabase 客户端（可能为 null，持久化失败不影响主流程）
+    const sb = makeSupabase();
+    // 工作流 DB id（首轮收到 plan 后写入）
+    let workflowDbId: string | null = null;
+
+    // ── 断点恢复：若传入 resume_workflow_id，加载历史 messages 快照 ──────────
+    let isResuming = false;
+    let resumedLastStepId: string | null = null;
+    if (resumeWorkflowId && sb) {
+      const snap = await dbLoadSnapshot(sb, resumeWorkflowId);
+      if (snap && snap.messages.length > 0) {
+        // 用快照替换 messages（保留 system prompt）
+        messages = snap.messages.filter(m => m.role !== "system");
+        resumedLastStepId = snap.lastStepId;
+        workflowDbId = resumeWorkflowId;
+        isResuming = true;
+        // 标记工作流重新运行
+        await sb.from("task_workflows").update({ status: "running", interrupted: false }).eq("id", resumeWorkflowId);
+        console.log(`[resume] workflow=${resumeWorkflowId} lastStep=${resumedLastStepId} msgs=${messages.length}`);
+      }
+    }
+
     const fullMessages: Message[] = [{ role: "system", content: buildSystemPrompt(targetBranch) }, ...messages];
-    console.log(`[main] model=${modelConfig.type} hasApiKey=${!!modelConfig.api_key} owner=${owner} repo=${repo}`);
+    console.log(`[main] model=${modelConfig.type} hasApiKey=${!!modelConfig.api_key} owner=${owner} repo=${repo} resume=${isResuming}`);
     
     // 心跳辅助函数：每次调用都向 SSE 写入一条 heartbeat，保持连接活跃
     const heartbeat = () => sendTyped({ type: "heartbeat" });
     // 启动背景心跳，每 15 秒发送一次，防止工具调用等耗时操作导致连接中断
     const heartbeatTimer = setInterval(heartbeat, 15000);
-
-    // Supabase 客户端（可能为 null，持久化失败不影响主流程）
-    const sb = makeSupabase();
-    // 工作流 DB id（首轮收到 plan 后写入）
-    let workflowDbId: string | null = null;
 
     const TOOL_LABELS: Record<string, string> = {
       // 文件操作
@@ -3214,12 +3308,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const MAX_ROUNDS_PER_BATCH = 20;
     const MAX_BATCHES = 3;
     // 当前正在执行的计划步骤 ID
-    let currentStepId: string | null = null;
+    let currentStepId: string | null = resumedLastStepId;
     // 连续"无工具调用"的 nudge 计数（最多纠正 2 次，防止死循环）
     let nudgeCount = 0;
     const MAX_NUDGE = 2;
     // 总轮次计数（跨批次）
     let totalRound = 0;
+
+    // ── 恢复执行时，首轮注入续跑指令 ───────────────────────────────────────
+    if (isResuming) {
+      fullMessages.push({
+        role: "user",
+        content: `⚠️ 系统提示：这是一次断点恢复执行。上次任务在步骤 "${resumedLastStepId ?? "未知"}" 时因批次耗尽而中断。` +
+          `\n请直接继续执行剩余未完成的步骤，不要重新输出 PLAN，直接从下一个工具调用开始。`,
+      });
+    }
 
     for (let batch = 0; batch < MAX_BATCHES; batch++) {
     let batchDone = false; // 本批是否已完成（break 出内层循环）
@@ -3509,9 +3612,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       // 将原始 assistantText（含 PLAN/STEP 标记）压入历史，保持上下文完整性
       fullMessages.push({ role: "assistant", content: rawText });
-      // 工具结果注入截断：文件内容类工具允许 15000 字符（约 300 行代码），其他工具 4000 字符
+      // 工具结果注入截断：文件内容类工具允许 30000 字符（约 600 行代码），其他工具 4000 字符
       const fileContentTools = ["read_file", "batch_read", "grep_in_file", "get_file_info"];
-      const resultLimit = fileContentTools.includes(toolCall.tool) ? 15000 : 4000;
+      const resultLimit = fileContentTools.includes(toolCall.tool) ? 30000 : 4000;
       const truncatedResult = toolResult.length > resultLimit
         ? toolResult.slice(0, resultLimit) + `\n…（内容已截断，原始长度 ${toolResult.length} 字符，如需完整内容请重新调用工具并缩小查询范围）`
         : toolResult;
@@ -3527,6 +3630,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
           // 任务仍在进行：用 status_info 事件通知前端（toast），不写入对话气泡
           console.log(`[auto-continue] batch=${batch} totalRound=${totalRound} 自动续跑`);
           await sendTyped({ type: "status_info", message: `第 ${batch + 1} 批任务完成，继续执行剩余步骤…` });
+          // 保存 messages 快照（批次续跑时持久化，供中断后恢复）
+          if (sb && workflowDbId) {
+            await dbSaveSnapshot(sb, workflowDbId, fullMessages, currentStepId, false);
+          }
           // 注入系统提示：告知 AI 继续剩余步骤，不要重新规划
           fullMessages.push({
             role: "user",
@@ -3535,7 +3642,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           nudgeCount = 0; // 新批次重置 nudge 计数
           // batchDone 保持 false，外层 for 将进入下一个 batch
         } else {
-          // 所有批次已耗尽
+          // 所有批次已耗尽：保存快照并标记为 interrupted，供用户手动恢复
           if (currentStepId) {
             await sendTyped({ type: "step_end", stepId: currentStepId, status: "done" });
             if (sb && workflowDbId) {
@@ -3544,8 +3651,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
               });
             }
           }
-          if (sb && workflowDbId) await dbFinishWorkflow(sb, workflowDbId);
-          await streamAnswer(`⚠️ 已达到最大工具调用轮次（${totalRound + 1} 轮），任务可能未完全完成，请重新发送指令继续。`, sendChunk);
+          // 保存快照 + 标记中断（可恢复）
+          if (sb && workflowDbId) {
+            await dbSaveSnapshot(sb, workflowDbId, fullMessages, currentStepId, true);
+            await sb.from("task_workflows")
+              .update({ status: "running", interrupted: true })
+              .eq("id", workflowDbId);
+          }
+          await streamAnswer(
+            `⚠️ 已达到最大工具调用轮次（${totalRound + 1} 轮），任务可能未完全完成。\n` +
+            `💾 进度已自动保存，可在「任务历史」中点击「恢复执行」继续未完成的步骤。`,
+            sendChunk
+          );
           batchDone = true;
         }
       }

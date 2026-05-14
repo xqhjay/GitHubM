@@ -36,6 +36,7 @@ import {
   RefreshCw,
   ChevronRight,
   AlertCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +53,7 @@ interface WorkflowRow {
   fail_steps: number;
   created_at: string;
   finished_at: string | null;
+  interrupted: boolean;
 }
 
 interface StepRow {
@@ -70,6 +72,7 @@ interface StepRow {
 
 interface Props {
   userId: string;
+  onResume?: (workflowId: string, taskSummary: string) => void;
 }
 
 // ── 辅助 ──────────────────────────────────────────────────────────────────
@@ -203,10 +206,10 @@ function StepDetailDialog({
 
 // ── 主组件 ────────────────────────────────────────────────────────────────
 
-export default function WorkflowHistoryPanel({ userId }: Props) {
+export default function WorkflowHistoryPanel({ userId, onResume }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | WorkflowRow['status']>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | WorkflowRow['status'] | 'interrupted'>('all');
   const [selected, setSelected] = useState<WorkflowRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -230,9 +233,14 @@ export default function WorkflowHistoryPanel({ userId }: Props) {
     setWorkflows(prev => prev.filter(w => w.id !== id));
   };
 
-  const filtered = workflows.filter(w =>
-    statusFilter === 'all' ? true : w.status === statusFilter
-  );
+  const filtered = workflows.filter(w => {
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'interrupted') return w.interrupted;
+    return w.status === statusFilter;
+  });
+
+  // 可恢复任务数（侧边栏角标用）
+  const interruptedCount = workflows.filter(w => w.interrupted).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -247,6 +255,9 @@ export default function WorkflowHistoryPanel({ userId }: Props) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部状态</SelectItem>
+            {interruptedCount > 0 && (
+              <SelectItem value="interrupted">可恢复 ({interruptedCount})</SelectItem>
+            )}
             <SelectItem value="done">已完成</SelectItem>
             <SelectItem value="partial_fail">部分失败</SelectItem>
             <SelectItem value="running">执行中</SelectItem>
@@ -293,7 +304,14 @@ export default function WorkflowHistoryPanel({ userId }: Props) {
                     <p className="text-sm flex-1 min-w-0 line-clamp-2 text-pretty leading-snug">
                       {wf.task_summary}
                     </p>
-                    <WorkflowStatusBadge status={wf.status} />
+                    <div className="flex items-center gap-1 shrink-0">
+                      {wf.interrupted && (
+                        <Badge variant="outline" className="text-xs h-4 px-1.5 border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30">
+                          可恢复
+                        </Badge>
+                      )}
+                      <WorkflowStatusBadge status={wf.status} />
+                    </div>
                   </div>
 
                   {/* 仓库 + 步骤统计 */}
@@ -312,6 +330,22 @@ export default function WorkflowHistoryPanel({ userId }: Props) {
                       <span>耗时 {fmtDuration(wf.created_at, wf.finished_at)}</span>
                     )}
                   </div>
+
+                  {/* 恢复执行按钮（仅 interrupted 工作流显示） */}
+                  {wf.interrupted && onResume && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-xs mt-1 border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onResume(wf.id, wf.task_summary);
+                      }}
+                    >
+                      <RotateCcw className="w-3 h-3 mr-1" />
+                      恢复执行
+                    </Button>
+                  )}
                 </div>
 
                 {/* 操作按钮 */}
