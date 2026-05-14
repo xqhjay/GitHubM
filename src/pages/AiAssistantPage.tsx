@@ -389,7 +389,7 @@ export default function AiAssistantPage() {
     }).join('');
   }, []);
 
-  const handleSend = useCallback(async (text?: string, isRegen = false) => {
+  const handleSend = useCallback(async (text?: string, isRegen = false, resumeWorkflowId?: string) => {
     const userText = (text ?? input).trim();
     if (!userText || isStreaming || !selectedRepo || !token) return;
 
@@ -439,7 +439,7 @@ export default function AiAssistantPage() {
     }
 
     // ── 记录请求参数，供断连后重连使用 ─────────────────────────────────────────
-    const reqBody = {
+    const reqBody: Record<string, unknown> = {
       messages: history,
       github_token: token,
       owner: selectedRepo.owner.login,
@@ -449,6 +449,8 @@ export default function AiAssistantPage() {
       user_id: user?.login || 'anonymous',
       auto_mode: autoMode,  // 自主执行模式标志，传递给 Edge Function
     };
+    // 断点恢复：传入 resume_workflow_id 时，Edge Function 将从历史快照继续
+    if (resumeWorkflowId) reqBody.resume_workflow_id = resumeWorkflowId;
     lastRequestBodyRef.current = reqBody;
     lastUserTextRef.current = userText;
     streamingAiMsgIdRef.current = aiMsg.id;
@@ -1657,7 +1659,16 @@ export default function AiAssistantPage() {
                     currentStepId={currentStepId}
                   />
                 ) : sidePanelTab === 'history' ? (
-                  <WorkflowHistoryPanel userId={user?.login ?? 'anonymous'} />
+                  <WorkflowHistoryPanel
+                    userId={user?.login ?? 'anonymous'}
+                    onResume={(workflowId, taskSummary) => {
+                      // 切换到聊天面板，传入断点恢复参数
+                      setSidePanelTab('plan');
+                      handleSend(`继续上次未完成的任务：${taskSummary}`, false, workflowId);
+                      // 聚焦输入框
+                      setTimeout(() => textareaRef.current?.focus(), 100);
+                    }}
+                  />
                 ) : (
                   <ToolHistoryPanel items={toolHistory} />
                 )}
