@@ -44,7 +44,6 @@ const AlertDialogContent = React.forwardRef<
       {...props}
       // 阻止 React fiber 逻辑树上的事件冒泡穿越 Portal 到达 ContextMenuTrigger / 卡片 onClick
       onPointerDown={(e) => { e.stopPropagation(); props.onPointerDown?.(e); }}
-      onContextMenu={(e) => { e.stopPropagation(); props.onContextMenu?.(e); }}
       onClick={(e) => { e.stopPropagation(); props.onClick?.(e); }}
     />
   </AlertDialogPortal>

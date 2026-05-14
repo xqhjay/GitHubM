@@ -6,27 +6,7 @@
 /* GitHub 管理器设计系统 - 紫色专业主题 */
 
 @layer base {
-  /*
-   * 禁用长按上下文菜单（Android WebView / iOS Safari）
-   * 长按时触发系统原生菜单会与 Radix Dialog 遮罩冲突，导致触摸事件卡死页面。
-   * - -webkit-touch-callout: none  → 禁用 iOS 长按气泡（保存图片/拷贝链接等）
-   * - user-select: none 仅针对 UI 交互区域，不影响代码/消息内容的文字选择
-   */
-  * {
-    -webkit-touch-callout: none;
-  }
 
-  /* 导航、按钮等纯交互元素禁止文字选中，防止长按触发选择手柄 */
-  button,
-  [role="button"],
-  a,
-  nav,
-  header,
-  [data-radix-dialog-overlay],
-  [data-radix-alert-dialog-overlay] {
-    -webkit-user-select: none;
-    user-select: none;
-  }
 
   /* 浅色模式（默认/跟随系统时若系统为浅色） */
   :root {
