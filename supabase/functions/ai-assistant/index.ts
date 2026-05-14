@@ -1,5 +1,5 @@
 // AI 助手 Edge Function v3
-// 支持多模型：文心 ERNIE / DeepSeek / OpenAI / 自定义兼容接口
+// 支持多模型：文心 ERNIE / DeepSeek / Gemini / Qwen / Groq / OpenAI / 自定义兼容接口
 // ReAct Agent：AI 通过工具链读取/写入 GitHub 仓库文件
 // 新增：任务计划持久化到 Supabase + 步骤失败自动重试
 
@@ -13,13 +13,13 @@ const corsHeaders = {
 // ── 模型配置 ────────────────────────────────────────────────────────────────
 
 interface ModelConfig {
-  /** wenxin | deepseek | openai | custom */
+  /** wenxin | deepseek | gemini | qwen | groq | openai | custom */
   type: string;
-  /** 用户自带 API Key（DeepSeek/OpenAI/Custom） */
+  /** 用户自带 API Key（DeepSeek/Gemini/Qwen/Groq/OpenAI/Custom） */
   api_key?: string;
   /** 自定义接口地址（custom 时必填） */
   endpoint?: string;
-  /** 具体模型名称，如 deepseek-chat / gpt-4o */
+  /** 具体模型名称，如 deepseek-chat / gemini-2.5-flash-preview-05-20 */
   model?: string;
 }
 
@@ -36,6 +36,39 @@ function buildLLMRequest(cfg: ModelConfig, platformKey: string): {
         headers: { Authorization: `Bearer ${cfg.api_key}` },
         // max_tokens: 8192 防止 DeepSeek 在任务中途截断输出
         bodyExtra: { model: cfg.model || "deepseek-chat", stream: true, max_tokens: 8192 },
+      };
+    case "gemini":
+      // Google AI Studio 提供 OpenAI 兼容接口，无需额外适配
+      return {
+        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        headers: { Authorization: `Bearer ${cfg.api_key}` },
+        bodyExtra: {
+          model: cfg.model || "gemini-2.5-flash-preview-05-20",
+          stream: true,
+          max_tokens: 16384,
+        },
+      };
+    case "qwen":
+      // 阿里云 DashScope OpenAI 兼容接口
+      return {
+        url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        headers: { Authorization: `Bearer ${cfg.api_key}` },
+        bodyExtra: {
+          model: cfg.model || "qwen2.5-coder-32b-instruct",
+          stream: true,
+          max_tokens: 8192,
+        },
+      };
+    case "groq":
+      // Groq 硬件加速推理，兼容 OpenAI 接口
+      return {
+        url: "https://api.groq.com/openai/v1/chat/completions",
+        headers: { Authorization: `Bearer ${cfg.api_key}` },
+        bodyExtra: {
+          model: cfg.model || "llama-3.3-70b-versatile",
+          stream: true,
+          max_tokens: 8192,
+        },
       };
     case "openai":
       return {

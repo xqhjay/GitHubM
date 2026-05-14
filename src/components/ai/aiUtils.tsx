@@ -36,17 +36,66 @@ export const MODEL_DEFS: ModelDef[] = [
     needEndpoint: false,
   },
   {
+    type: 'gemini',
+    label: 'Google Gemini',
+    desc: '谷歌 Gemini 系列，代码能力强，上下文窗口超大（100万 token）',
+    badge: '免费',
+    models: [
+      { value: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash（速度快 · 推荐）' },
+      { value: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro（最强代码能力）' },
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    ],
+    needKey: true,
+    needEndpoint: false,
+    keyPlaceholder: 'AIzaSy-xxxxxxxxxxxxxxxx',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
+  },
+  {
     type: 'deepseek',
     label: 'DeepSeek',
-    desc: '需填入 DeepSeek API Key',
+    desc: '综合代码能力极强，中文理解出色，API 价格极低',
+    badge: '低价',
     models: [
-      { value: 'deepseek-chat', label: 'DeepSeek Chat（推荐）' },
-      { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner（R1）' },
+      { value: 'deepseek-chat', label: 'DeepSeek V3（综合代码 · 推荐）' },
+      { value: 'deepseek-coder', label: 'DeepSeek Coder V2（专用代码模型）' },
+      { value: 'deepseek-reasoner', label: 'DeepSeek R1（深度推理）' },
     ],
     needKey: true,
     needEndpoint: false,
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
     docsUrl: 'https://platform.deepseek.com/api-keys',
+  },
+  {
+    type: 'qwen',
+    label: 'Qwen（通义千问）',
+    desc: '阿里云 Qwen 2.5 Coder，最强开源代码模型之一，中文支持优秀',
+    badge: '免费额度',
+    models: [
+      { value: 'qwen2.5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B（最强代码 · 推荐）' },
+      { value: 'qwen2.5-coder-7b-instruct', label: 'Qwen2.5 Coder 7B（轻量快速）' },
+      { value: 'qwen-plus', label: 'Qwen Plus（通用对话）' },
+      { value: 'qwen-turbo', label: 'Qwen Turbo（极速）' },
+    ],
+    needKey: true,
+    needEndpoint: false,
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
+    docsUrl: 'https://dashscope.console.aliyun.com/apiKey',
+  },
+  {
+    type: 'groq',
+    label: 'Groq（Llama）',
+    desc: 'Groq 硬件加速推理，速度极快（数百 token/s），Llama 3.3 70B',
+    badge: '免费',
+    models: [
+      { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B（推荐）' },
+      { value: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B' },
+      { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B（长上下文）' },
+      { value: 'gemma2-9b-it', label: 'Gemma 2 9B（Google · 轻量）' },
+    ],
+    needKey: true,
+    needEndpoint: false,
+    keyPlaceholder: 'gsk_xxxxxxxxxxxxxxxx',
+    docsUrl: 'https://console.groq.com/keys',
   },
   {
     type: 'openai',
@@ -127,6 +176,31 @@ export function loadModelConfig(): ModelConfig {
 
 export function saveModelConfig(cfg: ModelConfig): void {
   localStorage.setItem(MODEL_CONFIG_KEY, JSON.stringify(cfg));
+  // 同步更新独立 key 存储，保持两者一致
+  if (cfg.api_key && cfg.type !== 'wenxin') {
+    localStorage.setItem(`ai_api_key_${cfg.type}`, cfg.api_key);
+  }
+}
+
+/** 加载指定平台独立存储的 API Key */
+export function loadProviderKey(type: ModelType): string {
+  try {
+    return localStorage.getItem(`ai_api_key_${type}`) ?? '';
+  } catch { return ''; }
+}
+
+/** 保存指定平台独立存储的 API Key，并在该平台为当前活跃模型时同步更新 modelConfig */
+export function saveProviderKey(type: ModelType, key: string): void {
+  if (key.trim()) {
+    localStorage.setItem(`ai_api_key_${type}`, key.trim());
+  } else {
+    localStorage.removeItem(`ai_api_key_${type}`);
+  }
+  // 若该平台正是当前活跃模型，同步更新 modelConfig 中的 api_key
+  const current = loadModelConfig();
+  if (current.type === type) {
+    saveModelConfig({ ...current, api_key: key.trim() || undefined });
+  }
 }
 
 /**

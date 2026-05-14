@@ -19,6 +19,8 @@ import {
   User,
   Palette,
   ArrowUpCircle,
+  Bot,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +50,7 @@ import { updateUserProfile } from '@/services/github';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { MODEL_DEFS, loadProviderKey, saveProviderKey } from '@/components/ai/aiUtils';
 
 const themeOptions: { value: ThemeMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { value: 'light', label: '浅色', Icon: Sun },
@@ -245,6 +248,26 @@ export default function SettingsPage() {
   const [updatingToken, setUpdatingToken] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+
+  // ── AI API Key 配置状态（按平台独立存储）──────────────────────────────
+  // 仅对需要用户提供 API Key 的平台展示
+  const aiKeyProviders = MODEL_DEFS.filter(m => m.needKey && m.type !== 'custom');
+  const [aiKeys, setAiKeys] = useState<Record<string, string>>(() =>
+    Object.fromEntries(aiKeyProviders.map(m => [m.type, loadProviderKey(m.type as import('@/components/ai/aiUtils').ModelType)]))
+  );
+  const [showAiKeys, setShowAiKeys] = useState<Record<string, boolean>>({});
+  const [savedAiKeys, setSavedAiKeys] = useState<Record<string, boolean>>({});
+
+  const handleSaveAiKey = (type: string, key: string) => {
+    saveProviderKey(type as import('@/components/ai/aiUtils').ModelType, key);
+    setSavedAiKeys(prev => ({ ...prev, [type]: true }));
+    setTimeout(() => setSavedAiKeys(prev => ({ ...prev, [type]: false })), 2000);
+    if (key.trim()) {
+      toast.success(`${MODEL_DEFS.find(m => m.type === type)?.label ?? type} API Key 已保存`);
+    } else {
+      toast.info(`${MODEL_DEFS.find(m => m.type === type)?.label ?? type} API Key 已清除`);
+    }
+  };
 
   // ── 版本更新检查（仅 Android 环境） ─────────────────────────────────
   // 检测是否在 AndroidBridge 环境中
@@ -637,6 +660,78 @@ export default function SettingsPage() {
           >
             {updatingToken ? '验证中...' : '更新令牌'}
           </Button>
+        </div>
+      </div>
+
+      {/* AI 模型 API Key 配置 */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
+          <Bot className="w-4 h-4 text-primary" />
+          AI 模型 API Key
+        </h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          配置各平台密钥后，在 AI 助手中切换模型时将自动预填。密钥仅存储在本地。
+        </p>
+        <div className="space-y-4">
+          {aiKeyProviders.map(provider => {
+            const key = aiKeys[provider.type] ?? '';
+            const visible = showAiKeys[provider.type] ?? false;
+            const saved = savedAiKeys[provider.type] ?? false;
+            return (
+              <div key={provider.type} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-normal text-foreground flex items-center gap-1.5">
+                    {provider.label}
+                    {provider.badge && (
+                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+                        {provider.badge}
+                      </span>
+                    )}
+                  </Label>
+                  {provider.docsUrl && (
+                    <a
+                      href={provider.docsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                    >
+                      获取密钥
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Input
+                      type={visible ? 'text' : 'password'}
+                      value={key}
+                      onChange={e => setAiKeys(prev => ({ ...prev, [provider.type]: e.target.value }))}
+                      placeholder={provider.keyPlaceholder ?? '请输入 API Key'}
+                      className="bg-secondary border-border text-foreground placeholder:text-muted-foreground pr-10 font-mono text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAiKeys(prev => ({ ...prev, [provider.type]: !visible }))}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 border-border hover:bg-secondary gap-1.5"
+                    onClick={() => handleSaveAiKey(provider.type, key)}
+                  >
+                    {saved
+                      ? <><CheckCircle2 className="w-3.5 h-3.5 text-success" />已保存</>
+                      : '保存'
+                    }
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

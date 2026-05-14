@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { ModelConfig } from './aiTypes';
-import { MODEL_DEFS, maskApiKey, getModelDef } from './aiUtils';
+import { MODEL_DEFS, maskApiKey, getModelDef, loadProviderKey, saveProviderKey } from './aiUtils';
 import type { ModelType } from './aiUtils';
 import { fetchModelsFromAPI } from './aiSupabase';
 
@@ -62,7 +62,9 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
   }, [open, config]);
 
   const handleTypeChange = (type: ModelType) => {
-    setDraft({ type });
+    // 切换平台时自动预填该平台已存储的 API Key
+    const savedKey = loadProviderKey(type);
+    setDraft({ type, api_key: savedKey || undefined });
     setFetchState('idle');
     setFetchError('');
   };
@@ -103,6 +105,10 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
   const handleSave = () => {
     if (def.needKey && !draft.api_key?.trim()) { toast.error('请填写 API Key'); return; }
     if (def.needEndpoint && !draft.endpoint?.trim()) { toast.error('请填写接口地址'); return; }
+    // 同步保存到独立 key 仓库
+    if (draft.api_key && draft.type !== 'wenxin') {
+      saveProviderKey(draft.type, draft.api_key);
+    }
     onSave(draft);
     onClose();
     toast.success('模型配置已保存');
@@ -283,6 +289,39 @@ const ModelSettingsDialog = memo(function ModelSettingsDialog({
               <p className="text-xs text-muted-foreground">
                 文心 ERNIE 4.5 由平台提供，无需配置密钥，直接免费使用。
               </p>
+            </div>
+          )}
+
+          {/* Gemini 免费说明 */}
+          {draft.type === 'gemini' && (
+            <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Google AI Studio 提供免费额度，注册即用。</p>
+                <p>Gemini 2.5 Flash 速度快且免费；2.5 Pro 代码能力最强，每日免费请求数有限制。</p>
+              </div>
+            </div>
+          )}
+
+          {/* Qwen 说明 */}
+          {draft.type === 'qwen' && (
+            <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>阿里云 DashScope 平台，新用户可获免费额度。</p>
+                <p>Qwen2.5 Coder 32B 是目前最强开源代码模型之一，中英双语表现出色。</p>
+              </div>
+            </div>
+          )}
+
+          {/* Groq 免费说明 */}
+          {draft.type === 'groq' && (
+            <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Groq 提供免费 API 额度，响应速度极快（数百 token/s）。</p>
+                <p>Llama 3.3 70B 为首选，适合需要极低延迟的代码生成场景。</p>
+              </div>
             </div>
           )}
 
