@@ -29,10 +29,14 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
  * 当 auth 加载完成（无论已登录或未登录）后，通知 Android 原生层
  * 隐藏启动遮罩，避免 WebView 初始化过程中的闪烁。
  */
-// 访问统计埋点：每次路由变化时记录一次 PV
+// 访问统计埋点：每次路由变化时上报一次 PV 到服务端
 function VisitTracker() {
   const location = useLocation();
-  useEffect(() => { recordVisit(); }, [location.pathname]);
+  useEffect(() => {
+    // 路径从 Hash 路由中取得（#/repos → /repos）
+    const path = location.pathname || '/';
+    recordVisit(path);
+  }, [location.pathname]);
   return null;
 }
 
