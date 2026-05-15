@@ -4910,7 +4910,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       assistantText = stripCodeFences(assistantText);
 
       // ── 首轮（每批第 0 轮）提取任务计划 ─────────────────────────────────────
-      if (totalRound === 0) {
+      // 恢复执行时跳过：workflowDbId 已由断点恢复设置，不能覆盖；且 AI 不应重输 PLAN
+      if (totalRound === 0 && !isResuming) {
         const plan = extractPlan(rawText); // 使用原始文本（stripCodeFences 在内部处理）
         if (plan && plan.length > 0) {
           await sendTyped({ type: "plan", steps: plan });
@@ -5249,6 +5250,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
         console.log(`[ctx-compress] 压缩后 messages=${fullMessages.length}，省略了 ${mid.length} 条中间消息`);
       }
 
+      // ── 每 5 轮自动保存快照：页面意外关闭时任务进度不丢失 ─────────────────
+      if (sb && workflowDbId && totalRound > 0 && totalRound % 5 === 0) {
+        await dbSaveSnapshot(sb, workflowDbId, fullMessages, currentStepId, false);
+        console.log(`[auto-snapshot] totalRound=${totalRound} workflowId=${workflowDbId} 自动保存快照`);
+      }
+
       // ── 本批次工具轮次耗尽：任务未完则自动续跑 ─────────────────────────────
       if (round === MAX_ROUNDS_PER_BATCH - 1) {
         const hasMoreBatches = batch < MAX_BATCHES - 1;
@@ -5297,7 +5304,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (batchDone || abortSig.aborted) break; // 内层正常完成 / 用户中断，退出外层
     } // end outer for (batch)
 
-    if (sb && workflowDbId) await dbFinishWorkflow(sb, workflowDbId);
+    // 用户主动中断：保存快照，标记为可恢复
+    if (abortSig.aborted && sb && workflowDbId) {
+      await dbSaveSnapshot(sb, workflowDbId, fullMessages, currentStepId, true);
+      await sb.from("task_workflows")
+        .update({ status: "running", interrupted: true })
+        .eq("id", workflowDbId);
+    }
+
+    // 非用户中断时才标记完成（abort 时已在上方标记为 interrupted）
+    if (!abortSig.aborted && sb && workflowDbId) await dbFinishWorkflow(sb, workflowDbId);
     clearInterval(heartbeatTimer);
     await sendDone();
     } catch (fatalErr) {

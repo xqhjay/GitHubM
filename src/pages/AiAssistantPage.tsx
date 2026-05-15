@@ -635,6 +635,8 @@ export default function AiAssistantPage() {
             setCurrentStepId(null);
             setSidePanelTab('plan');
             if (window.innerWidth >= 768) setShowToolHistory(true);
+            // 新任务刚创建：触发历史面板刷新，让当前任务立即出现在历史记录里
+            setHistoryRefreshTrigger(v => v + 1);
             // 初始气泡显示计划概览（折叠列表）
             queueMsg(prev => prev.map(m => {
               if (m.id !== initMsgId) return m;
