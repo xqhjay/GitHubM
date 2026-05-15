@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react';
 import { Copy, Check, GitMerge, ChevronDown, ChevronRight, FileCode2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, copyToClipboard } from '@/lib/utils';
 
 // ── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ function DiffFileBlock({ file, onApply }: DiffFileBlockProps) {
     const text = file.hunks.map(h =>
       [h.header, ...h.lines.map(l => l.content)].join('\n')
     ).join('\n');
-    navigator.clipboard.writeText(text).catch(() => {});
+    copyToClipboard(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   }, [file.hunks]);

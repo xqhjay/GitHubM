@@ -101,7 +101,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import type { GitHubContent, GitHubBranch } from '@/types/types';
 import { toast } from 'sonner';
-import { decodeBase64Content } from '@/lib/utils';
+import { decodeBase64Content, copyToClipboard } from '@/lib/utils';
 import { getFileIconInfo, isImageFile } from '@/components/common/FileIcon';
 
 /**
@@ -601,13 +601,13 @@ export default function CodeBrowserPage() {
   };
 
   const handleCopyPath = (path: string) => {
-    navigator.clipboard.writeText(path);
+    copyToClipboard(path);
     toast.success('路径已复制');
   };
 
   const handleCopyRawLink = (path: string) => {
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${currentBranch}/${path}`;
-    navigator.clipboard.writeText(rawUrl);
+    copyToClipboard(rawUrl);
     toast.success('Raw 链接已复制');
   };
 
@@ -898,7 +898,7 @@ export default function CodeBrowserPage() {
                 variant="ghost"
                 size="icon"
                 className="w-8 h-8 text-muted-foreground hover:bg-secondary"
-                onClick={() => { navigator.clipboard.writeText(editContent); toast.success('代码已复制'); }}
+                onClick={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}
                 title="复制内容"
               >
                 <Copy className="w-4 h-4" />
@@ -1259,7 +1259,7 @@ export default function CodeBrowserPage() {
                     <Search className="w-3.5 h-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:bg-secondary"
-                    onClick={() => { navigator.clipboard.writeText(editContent); toast.success('代码已复制'); }}
+                    onClick={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}
                     title="复制内容">
                     <Copy className="w-3.5 h-3.5" />
                   </Button>
@@ -1431,7 +1431,7 @@ export default function CodeBrowserPage() {
                 )}
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 px-2"
                   title="复制路径"
-                  onClick={() => { navigator.clipboard.writeText(currentFile.path); toast.success('路径已复制'); }}>
+                  onClick={() => { copyToClipboard(currentFile.path); toast.success('路径已复制'); }}>
                   <ClipboardCopy className="w-3.5 h-3.5" /><span className="hidden md:inline">复制路径</span>
                 </Button>
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 px-2"
@@ -1446,7 +1446,7 @@ export default function CodeBrowserPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
-                    <DropdownMenuItem onClick={() => { const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${currentBranch}/${currentFile.path}`; navigator.clipboard.writeText(rawUrl); toast.success('Raw 链接已复制'); }}>
+                    <DropdownMenuItem onClick={() => { const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${currentBranch}/${currentFile.path}`; copyToClipboard(rawUrl); toast.success('Raw 链接已复制'); }}>
                       <Link className="w-3.5 h-3.5 mr-2" />复制 Raw 链接
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

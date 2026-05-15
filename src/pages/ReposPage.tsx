@@ -88,6 +88,7 @@ import type { GitHubRepo, RepoSortField, SortDirection } from '@/types/types';
 import { toast } from 'sonner';
 import { useDebounce } from '@/hooks/use-debounce';
 import { pageCache } from '@/lib/page-cache';
+import { copyToClipboard } from '@/lib/utils';
 
 // 仓库右键上下文菜单
 // ContextMenu 菜单内容（不含任何弹窗，只触发回调）
@@ -124,7 +125,7 @@ function RepoContextMenu({ repo, onDeleteRequest, onDeleteSuccess }: {
   };
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(repo.clone_url || repo.html_url);
+    copyToClipboard(repo.clone_url || repo.html_url);
     toast.success('仓库地址已复制');
   };
 
@@ -276,7 +277,7 @@ function RepoCardDropdown({ repo, onDeleteRequest, onDeleteSuccess }: { repo: Gi
   };
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(repo.clone_url || repo.html_url);
+    copyToClipboard(repo.clone_url || repo.html_url);
     toast.success('仓库地址已复制');
   };
 

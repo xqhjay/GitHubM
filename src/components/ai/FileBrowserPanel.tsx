@@ -5,7 +5,7 @@ import {
   ChevronRight, ChevronDown, Loader2, X, Eye, Pencil, Copy,
   FolderSearch, RefreshCw,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, copyToClipboard } from '@/lib/utils';
 import { getRepoContents } from '@/services/github';
 import type { GitHubContent } from '@/types/types';
 import { toast } from 'sonner';
@@ -239,7 +239,7 @@ const FileBrowserPanel = memo(function FileBrowserPanel({
   // 文件操作 → 插入文本到输入框
   const handleFileAction = useCallback((item: GitHubContent, action: 'read' | 'edit' | 'copy') => {
     if (action === 'copy') {
-      navigator.clipboard.writeText(item.path).then(() => toast.success('路径已复制'));
+      copyToClipboard(item.path).then(() => toast.success('路径已复制'));
       return;
     }
     if (action === 'read') {

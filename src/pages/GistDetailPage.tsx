@@ -35,6 +35,7 @@ import {
 import type { GitHubGistDetail, GitHubComment } from '@/types/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/utils';
 
 export default function GistDetailPage() {
   const { gistId } = useParams<{ gistId: string }>();
@@ -61,7 +62,7 @@ export default function GistDetailPage() {
   }, [gistId]);
 
   const handleCopy = (filename: string, content: string) => {
-    navigator.clipboard.writeText(content);
+    copyToClipboard(content);
     setCopied(filename);
     setTimeout(() => setCopied(null), 2000);
     toast.success('已复制到剪贴板');

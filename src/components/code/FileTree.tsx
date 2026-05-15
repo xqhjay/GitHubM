@@ -33,7 +33,7 @@ import {
   GitBranch,
   Eye,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, copyToClipboard } from '@/lib/utils';
 import { getFileIconInfo } from '@/components/common/FileIcon';
 import { getRepoContents } from '@/services/github';
 import type { GitHubContent, GitHubBranch } from '@/types/types';
@@ -642,13 +642,13 @@ export default function FileTree({
 
   // 复制路径
   const handleCopyPath = useCallback((path: string) => {
-    navigator.clipboard.writeText(path);
+    copyToClipboard(path);
   }, []);
 
   // 复制 Raw 链接
   const handleCopyRaw = useCallback((path: string) => {
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-    navigator.clipboard.writeText(rawUrl);
+    copyToClipboard(rawUrl);
   }, [owner, repo, branch]);
 
   // 查看历史

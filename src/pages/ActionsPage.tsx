@@ -58,6 +58,7 @@ import {
 } from '@/services/github';
 import type { GitHubWorkflow, GitHubWorkflowRun, GitHubWorkflowJob } from '@/types/types';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/utils';
 
 function RunStatusBadge({ status, conclusion }: { status: string | null; conclusion: string | null }) {
   if (status === 'in_progress' || status === 'queued' || status === 'waiting') {
@@ -153,7 +154,7 @@ function LogPanel({ jobId, owner, repo, isRunning }: LogPanelProps) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(stripAnsi(logs));
+      await copyToClipboard(stripAnsi(logs));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

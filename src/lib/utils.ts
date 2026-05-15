@@ -62,3 +62,35 @@ export function formatDate(
     ...opts,
   }).format(new Date(date));
 }
+
+/**
+ * 安全复制文本到剪贴板，兼容低版本 Android WebView（file:// 协议）。
+ * navigator.clipboard API 在 file:// 下可能不可用或抛出异常，
+ * 降级为 document.execCommand('copy')（广泛兼容 Android 4.4+）。
+ * @returns Promise<boolean> true=成功，false=失败（调用方自行决定是否提示用户）
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  // 优先使用现代 Clipboard API
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // 降级到 execCommand
+    }
+  }
+  // 降级：创建临时 textarea + execCommand（兼容旧版 WebView）
+  try {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}

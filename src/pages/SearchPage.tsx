@@ -50,7 +50,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
+import { cn, copyToClipboard } from '@/lib/utils';
 
 // GitHub Search API 最多返回 1000 条结果
 const PER_PAGE = 20;
@@ -122,7 +122,7 @@ function SearchRepoContextMenu({ repo, children }: { repo: GitHubRepo; children:
   };
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(repo.clone_url || repo.html_url);
+    copyToClipboard(repo.clone_url || repo.html_url);
     toast.success('仓库地址已复制');
   };
 

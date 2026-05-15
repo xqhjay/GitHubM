@@ -1,6 +1,7 @@
 // 复制按钮：memo 优化，防止父组件渲染时重复挂载
 import { memo, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { copyToClipboard } from '@/lib/utils';
 
 interface CopyButtonProps {
   text: string;
@@ -9,11 +10,10 @@ interface CopyButtonProps {
 const CopyButton = memo(function CopyButton({ text }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+  const handleCopy = async () => {
+    await copyToClipboard(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
