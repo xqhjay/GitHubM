@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import type { ModelConfig, ModelType, SSEChunk } from './aiTypes';
 import DiffBlock from './DiffBlock';
+import { WenxinIcon, DeepSeekIcon, GeminiIcon, QwenIcon, OpenAIIcon, CustomIcon } from './ModelIcons';
 import {
   FolderOpen, BookOpen, Search, FileCode2, Pencil,
   GitBranch, GitCommit, GitMerge, CircleAlert,
@@ -30,6 +31,8 @@ export interface ModelDef {
   avatarFrom: string;
   /** 头像渐变结束色 */
   avatarTo: string;
+  /** 品牌 SVG 图标组件（优先级高于渐变文字）*/
+  Icon?: React.FC<{ className?: string; style?: React.CSSProperties }>;
 }
 
 export const MODEL_DEFS: ModelDef[] = [
@@ -43,6 +46,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: '文',
     avatarFrom: '#e85d04',
     avatarTo: '#f48c06',
+    Icon: WenxinIcon,
   },
   {
     type: 'gemini',
@@ -61,6 +65,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: 'G',
     avatarFrom: '#1a73e8',
     avatarTo: '#34a853',
+    Icon: GeminiIcon,
   },
   {
     type: 'deepseek',
@@ -79,6 +84,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: 'DS',
     avatarFrom: '#0ea5e9',
     avatarTo: '#0284c7',
+    Icon: DeepSeekIcon,
   },
   {
     type: 'qwen',
@@ -98,6 +104,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: '千',
     avatarFrom: '#7c3aed',
     avatarTo: '#a855f7',
+    Icon: QwenIcon,
   },
   {
     type: 'openai',
@@ -115,6 +122,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: 'AI',
     avatarFrom: '#10a37f',
     avatarTo: '#059669',
+    Icon: OpenAIIcon,
   },
   {
     type: 'custom',
@@ -126,6 +134,7 @@ export const MODEL_DEFS: ModelDef[] = [
     avatarText: '{}',
     avatarFrom: '#64748b',
     avatarTo: '#475569',
+    Icon: CustomIcon,
   },
 ];
 
@@ -445,12 +454,24 @@ export function renderMarkdown(text: string, onApplyDiff?: (filePath: string) =>
 
 // ── 模型专属头像组件 ────────────────────────────────────────────────────────────
 export function ModelAvatar({ modelDef, size = 'sm' }: { modelDef: ModelDef; size?: 'sm' | 'md' }) {
-  const dim = size === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-xs';
+  const dim = size === 'sm' ? 'w-7 h-7' : 'w-9 h-9';
+  const iconDim = size === 'sm' ? 'w-5 h-5' : 'w-6 h-6';
+
+  if (modelDef.Icon) {
+    const Icon = modelDef.Icon;
+    return (
+      <div className={cn('rounded-full flex items-center justify-center shrink-0 select-none bg-background', dim)}>
+        <Icon className={iconDim} />
+      </div>
+    );
+  }
+
+  // 兜底：渐变文字头像
   return (
     <div
       className={cn(
         'rounded-full flex items-center justify-center shrink-0 font-bold text-white shadow-sm select-none',
-        dim,
+        size === 'sm' ? `${dim} text-[11px]` : `${dim} text-xs`,
       )}
       style={{ background: `linear-gradient(135deg, ${modelDef.avatarFrom}, ${modelDef.avatarTo})` }}
     >
