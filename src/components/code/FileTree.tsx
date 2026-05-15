@@ -4,10 +4,11 @@
  * 交互设计：
  * - 懒加载：展开文件夹时才请求子节点，不一次性拉全量
  * - 展开/收起状态持久化到组件生命周期（切换文件不重置）
- * - 右键/长按弹出上下文菜单（新建文件、新建文件夹、重命名、删除）
- * - Hover 时右侧显示快捷操作按钮（新建文件/文件夹）
+ * - 右键/长按弹出上下文菜单（完整操作集合）
+ * - Hover 时右侧显示快捷操作按钮（文件+文件夹均支持）
  * - 当前选中节点高亮（与 URL 路径同步）
  * - 顶部快捷搜索（本地过滤已加载节点）
+ * - 分支选择器集成在标题栏
  */
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
@@ -24,11 +25,18 @@ import {
   Pencil,
   Trash2,
   MoreHorizontal,
+  Download,
+  ClipboardCopy,
+  Link,
+  History,
+  Upload,
+  GitBranch,
+  Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getFileIconInfo } from '@/components/common/FileIcon';
 import { getRepoContents } from '@/services/github';
-import type { GitHubContent } from '@/types/types';
+import type { GitHubContent, GitHubBranch } from '@/types/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,8 +50,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 // ── 类型 ────────────────────────────────────────────────────────────────────
@@ -60,6 +76,10 @@ export interface FileTreeProps {
   owner: string;
   repo: string;
   branch: string;
+  /** 所有可用分支列表（用于分支切换器） */
+  branches?: GitHubBranch[];
+  /** 切换分支回调 */
+  onBranchChange?: (branch: string) => void;
   /** 当前已选中的文件路径（用于高亮） */
   activePath?: string;
   /** 点击文件时回调（由父组件决定如何导航） */
@@ -68,10 +88,16 @@ export interface FileTreeProps {
   onNewFile?: (dirPath: string) => void;
   /** 触发新建文件夹，传入所在目录路径 */
   onNewFolder?: (dirPath: string) => void;
+  /** 触发上传文件，传入所在目录路径 */
+  onUpload?: (dirPath: string) => void;
   /** 触发重命名 */
   onRename?: (item: GitHubContent) => void;
   /** 触发删除 */
   onDelete?: (item: GitHubContent) => void;
+  /** 触发移动 */
+  onMove?: (item: GitHubContent) => void;
+  /** 下载文件回调 */
+  onDownload?: (item: GitHubContent) => void;
   /** 外部触发刷新用 key（递增则重新加载根节点） */
   refreshKey?: number;
   className?: string;
@@ -98,8 +124,17 @@ function TreeNodeRow({
   onFileClick,
   onNewFile,
   onNewFolder,
+  onUpload,
   onRename,
   onDelete,
+  onMove,
+  onDownload,
+  onCopyPath,
+  onCopyRaw,
+  onViewHistory,
+  owner,
+  repo,
+  branch,
   filterText,
 }: {
   node: TreeNode;
@@ -110,10 +145,20 @@ function TreeNodeRow({
   onFileClick?: (item: GitHubContent) => void;
   onNewFile?: (dirPath: string) => void;
   onNewFolder?: (dirPath: string) => void;
+  onUpload?: (dirPath: string) => void;
   onRename?: (item: GitHubContent) => void;
   onDelete?: (item: GitHubContent) => void;
+  onMove?: (item: GitHubContent) => void;
+  onDownload?: (item: GitHubContent) => void;
+  onCopyPath?: (path: string) => void;
+  onCopyRaw?: (path: string) => void;
+  onViewHistory?: (item: GitHubContent) => void;
+  owner: string;
+  repo: string;
+  branch: string;
   filterText: string;
 }) {
+  const navigate = useNavigate();
   const { item, status } = node;
   const isDir = item.type === 'dir';
   const { Icon, color } = getFileIconInfo(item.name, isDir, isExpanded);
@@ -142,29 +187,81 @@ function TreeNodeRow({
     );
   }, [item.name, filterText]);
 
-  const contextActions = (
-    <>
-      {isDir && (
-        <>
-          <ContextMenuItem onClick={() => onNewFile?.(item.path)}>
-            <FilePlus className="w-3.5 h-3.5 mr-2" />新建文件
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => onNewFolder?.(item.path)}>
-            <FolderPlus className="w-3.5 h-3.5 mr-2" />新建文件夹
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-        </>
-      )}
+  // ── 文件夹右键菜单内容 ──
+  const dirContextContent = (
+    <ContextMenuContent className="w-48">
+      <ContextMenuItem onClick={() => onToggle(item.path)}>
+        {isExpanded
+          ? <><ChevronDown className="w-3.5 h-3.5 mr-2" />收起文件夹</>
+          : <><ChevronRight className="w-3.5 h-3.5 mr-2" />展开文件夹</>
+        }
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}>
+        <Eye className="w-3.5 h-3.5 mr-2" />在主区域打开
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => onNewFile?.(item.path)}>
+        <FilePlus className="w-3.5 h-3.5 mr-2" />新建文件
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onNewFolder?.(item.path)}>
+        <FolderPlus className="w-3.5 h-3.5 mr-2" />新建子文件夹
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onUpload?.(item.path)}>
+        <Upload className="w-3.5 h-3.5 mr-2" />上传文件到此
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => onCopyPath?.(item.path)}>
+        <ClipboardCopy className="w-3.5 h-3.5 mr-2" />复制路径
+      </ContextMenuItem>
       <ContextMenuItem onClick={() => onRename?.(item)}>
         <Pencil className="w-3.5 h-3.5 mr-2" />重命名
       </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem
         onClick={() => onDelete?.(item)}
         className="text-destructive focus:text-destructive"
       >
-        <Trash2 className="w-3.5 h-3.5 mr-2" />删除
+        <Trash2 className="w-3.5 h-3.5 mr-2" />删除文件夹
       </ContextMenuItem>
-    </>
+    </ContextMenuContent>
+  );
+
+  // ── 文件右键菜单内容 ──
+  const fileContextContent = (
+    <ContextMenuContent className="w-48">
+      <ContextMenuItem onClick={() => onFileClick?.(item)}>
+        <Eye className="w-3.5 h-3.5 mr-2" />查看 / 编辑
+      </ContextMenuItem>
+      {onDownload && (
+        <ContextMenuItem onClick={() => onDownload(item)}>
+          <Download className="w-3.5 h-3.5 mr-2" />下载文件
+        </ContextMenuItem>
+      )}
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => onCopyPath?.(item.path)}>
+        <ClipboardCopy className="w-3.5 h-3.5 mr-2" />复制路径
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onCopyRaw?.(item.path)}>
+        <Link className="w-3.5 h-3.5 mr-2" />复制 Raw 链接
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => onRename?.(item)}>
+        <Pencil className="w-3.5 h-3.5 mr-2" />重命名
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onMove?.(item)}>
+        <MoveIcon className="w-3.5 h-3.5 mr-2" />移动到...
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onViewHistory?.(item)}>
+        <History className="w-3.5 h-3.5 mr-2" />查看历史
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        onClick={() => onDelete?.(item)}
+        className="text-destructive focus:text-destructive"
+      >
+        <Trash2 className="w-3.5 h-3.5 mr-2" />删除文件
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 
   return (
@@ -205,25 +302,53 @@ function TreeNodeRow({
             {nameNode}
           </span>
 
-          {/* Hover 快捷按钮（仅文件夹显示） */}
-          {isDir && (
-            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted/70"
-                title="新建文件"
-                onClick={e => { e.stopPropagation(); onNewFile?.(item.path); }}
-              >
-                <FilePlus className="w-3 h-3 text-muted-foreground" />
-              </button>
-              <button
-                type="button"
-                className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted/70"
-                title="新建文件夹"
-                onClick={e => { e.stopPropagation(); onNewFolder?.(item.path); }}
-              >
-                <FolderPlus className="w-3 h-3 text-muted-foreground" />
-              </button>
+          {/* Hover 快捷按钮 */}
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 shrink-0">
+            {isDir ? (
+              <>
+                <button
+                  type="button"
+                  className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted/70"
+                  title="新建文件"
+                  onClick={e => { e.stopPropagation(); onNewFile?.(item.path); }}
+                >
+                  <FilePlus className="w-3 h-3 text-muted-foreground" />
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted/70"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={() => onNewFolder?.(item.path)}>
+                      <FolderPlus className="w-3.5 h-3.5 mr-2" />新建子文件夹
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onUpload?.(item.path)}>
+                      <Upload className="w-3.5 h-3.5 mr-2" />上传文件到此
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onCopyPath?.(item.path)}>
+                      <ClipboardCopy className="w-3.5 h-3.5 mr-2" />复制路径
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onRename?.(item)}>
+                      <Pencil className="w-3.5 h-3.5 mr-2" />重命名
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => onDelete?.(item)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-2" />删除
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -234,10 +359,26 @@ function TreeNodeRow({
                     <MoreHorizontal className="w-3 h-3 text-muted-foreground" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuContent align="end" className="w-40">
+                  {onDownload && (
+                    <DropdownMenuItem onClick={() => onDownload(item)}>
+                      <Download className="w-3.5 h-3.5 mr-2" />下载
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => onCopyPath?.(item.path)}>
+                    <ClipboardCopy className="w-3.5 h-3.5 mr-2" />复制路径
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onCopyRaw?.(item.path)}>
+                    <Link className="w-3.5 h-3.5 mr-2" />复制 Raw 链接
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => onRename?.(item)}>
                     <Pencil className="w-3.5 h-3.5 mr-2" />重命名
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onMove?.(item)}>
+                    <MoveIcon className="w-3.5 h-3.5 mr-2" />移动到...
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => onDelete?.(item)}
                     className="text-destructive focus:text-destructive"
@@ -246,14 +387,22 @@ function TreeNodeRow({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </span>
-          )}
+            )}
+          </span>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-44">
-        {contextActions}
-      </ContextMenuContent>
+      {isDir ? dirContextContent : fileContextContent}
     </ContextMenu>
+  );
+}
+
+// ── 移动图标占位（避免 lucide 命名冲突）────────────────────────────────────
+
+function MoveIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
   );
 }
 
@@ -268,8 +417,17 @@ function TreeNodeList({
   onFileClick,
   onNewFile,
   onNewFolder,
+  onUpload,
   onRename,
   onDelete,
+  onMove,
+  onDownload,
+  onCopyPath,
+  onCopyRaw,
+  onViewHistory,
+  owner,
+  repo,
+  branch,
   filterText,
 }: {
   nodes: TreeNode[];
@@ -280,8 +438,17 @@ function TreeNodeList({
   onFileClick?: (item: GitHubContent) => void;
   onNewFile?: (dirPath: string) => void;
   onNewFolder?: (dirPath: string) => void;
+  onUpload?: (dirPath: string) => void;
   onRename?: (item: GitHubContent) => void;
   onDelete?: (item: GitHubContent) => void;
+  onMove?: (item: GitHubContent) => void;
+  onDownload?: (item: GitHubContent) => void;
+  onCopyPath?: (path: string) => void;
+  onCopyRaw?: (path: string) => void;
+  onViewHistory?: (item: GitHubContent) => void;
+  owner: string;
+  repo: string;
+  branch: string;
   filterText: string;
 }) {
   return (
@@ -300,8 +467,17 @@ function TreeNodeList({
               onFileClick={onFileClick}
               onNewFile={onNewFile}
               onNewFolder={onNewFolder}
+              onUpload={onUpload}
               onRename={onRename}
               onDelete={onDelete}
+              onMove={onMove}
+              onDownload={onDownload}
+              onCopyPath={onCopyPath}
+              onCopyRaw={onCopyRaw}
+              onViewHistory={onViewHistory}
+              owner={owner}
+              repo={repo}
+              branch={branch}
               filterText={filterText}
             />
             {/* 子节点 */}
@@ -315,8 +491,17 @@ function TreeNodeList({
                 onFileClick={onFileClick}
                 onNewFile={onNewFile}
                 onNewFolder={onNewFolder}
+                onUpload={onUpload}
                 onRename={onRename}
                 onDelete={onDelete}
+                onMove={onMove}
+                onDownload={onDownload}
+                onCopyPath={onCopyPath}
+                onCopyRaw={onCopyRaw}
+                onViewHistory={onViewHistory}
+                owner={owner}
+                repo={repo}
+                branch={branch}
                 filterText={filterText}
               />
             )}
@@ -342,12 +527,17 @@ export default function FileTree({
   owner,
   repo,
   branch,
+  branches,
+  onBranchChange,
   activePath,
   onFileClick,
   onNewFile,
   onNewFolder,
+  onUpload,
   onRename,
   onDelete,
+  onMove,
+  onDownload,
   refreshKey,
   className,
 }: FileTreeProps) {
@@ -450,6 +640,22 @@ export default function FileTree({
     }
   }, [onFileClick, navigate, owner, repo]);
 
+  // 复制路径
+  const handleCopyPath = useCallback((path: string) => {
+    navigator.clipboard.writeText(path);
+  }, []);
+
+  // 复制 Raw 链接
+  const handleCopyRaw = useCallback((path: string) => {
+    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+    navigator.clipboard.writeText(rawUrl);
+  }, [owner, repo, branch]);
+
+  // 查看历史
+  const handleViewHistory = useCallback((item: GitHubContent) => {
+    navigate(`/repos/${owner}/${repo}/commits/${branch}?path=${item.path}`);
+  }, [navigate, owner, repo, branch]);
+
   // 搜索过滤（本地过滤，只过滤名字，不过滤未展开子节点）
   const filteredRoots = useMemo(() => {
     if (!searchText.trim()) return roots;
@@ -469,10 +675,10 @@ export default function FileTree({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* 顶栏：根目录操作 */}
+      {/* 标题栏：仓库名 + 操作按钮 */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0">
-        <span className="flex-1 text-xs font-medium text-muted-foreground truncate uppercase tracking-wide px-1">
-          文件浏览
+        <span className="flex-1 text-xs font-semibold text-muted-foreground truncate uppercase tracking-wide px-1 select-none">
+          {repo}
         </span>
         <button
           type="button"
@@ -481,14 +687,6 @@ export default function FileTree({
           onClick={() => onNewFile?.('')}
         >
           <FilePlus className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
-        <button
-          type="button"
-          className="h-6 w-6 flex items-center justify-center rounded hover:bg-muted/70 transition-colors"
-          title="在根目录新建文件夹"
-          onClick={() => onNewFolder?.('')}
-        >
-          <FolderPlus className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
         <button
           type="button"
@@ -510,6 +708,25 @@ export default function FileTree({
           <RefreshCw className={cn('w-3.5 h-3.5 text-muted-foreground', rootStatus === 'loading' && 'animate-spin')} />
         </button>
       </div>
+
+      {/* 分支选择器 */}
+      {branches && branches.length > 0 && onBranchChange && (
+        <div className="px-2 py-1.5 border-b border-border shrink-0">
+          <Select value={branch} onValueChange={onBranchChange}>
+            <SelectTrigger className="h-7 text-xs bg-secondary border-border text-foreground w-full gap-1">
+              <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover border-border max-h-48">
+              {branches.map(b => (
+                <SelectItem key={b.name} value={b.name} className="text-foreground font-mono text-xs">
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* 搜索框 */}
       {showSearch && (
@@ -562,8 +779,17 @@ export default function FileTree({
               onFileClick={handleFileClick}
               onNewFile={onNewFile}
               onNewFolder={onNewFolder}
+              onUpload={onUpload}
               onRename={onRename}
               onDelete={onDelete}
+              onMove={onMove}
+              onDownload={onDownload}
+              onCopyPath={handleCopyPath}
+              onCopyRaw={handleCopyRaw}
+              onViewHistory={handleViewHistory}
+              owner={owner}
+              repo={repo}
+              branch={branch}
               filterText={searchText}
             />
           )}
@@ -577,3 +803,5 @@ export default function FileTree({
     </div>
   );
 }
+
+

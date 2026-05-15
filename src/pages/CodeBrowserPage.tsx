@@ -5,7 +5,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import FileTree from '@/components/code/FileTree';
 import {
   ChevronRight,
-  GitBranch,
   ArrowLeft,
   Download,
   Copy,
@@ -36,6 +35,8 @@ import {
   ZoomOut,
   PanelLeftOpen,
   PanelLeftClose,
+  MoreHorizontal,
+  GitBranch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -75,6 +76,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Sheet,
   SheetContent,
@@ -1086,8 +1094,8 @@ export default function CodeBrowserPage() {
         </div>
       )}
 
-      {/* ─── 顶栏：面包屑 + 分支选择 + 移动端树按钮 ─── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-card/80 shrink-0 flex-wrap">
+      {/* ─── 顶栏：面包屑 + 移动端树按钮 + 桌面端树切换 ─── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card/80 shrink-0 min-h-[44px]">
         {/* 移动端：展开文件树按钮 */}
         <Button
           variant="ghost"
@@ -1100,12 +1108,12 @@ export default function CodeBrowserPage() {
         </Button>
 
         {/* 面包屑 */}
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground flex-wrap flex-1 min-w-0">
+        <div className="flex items-center gap-1 text-sm text-muted-foreground flex-1 min-w-0 overflow-x-auto whitespace-nowrap scrollbar-none">
           <button type="button" className="hover:text-primary transition-colors shrink-0" onClick={() => navigate('/repos')}>仓库</button>
           <ChevronRight className="w-3 h-3 shrink-0" />
-          <button type="button" className="hover:text-primary transition-colors shrink-0" onClick={() => navigate(`/repos/${owner}/${repo}`)}>{owner}/{repo}</button>
+          <button type="button" className="hover:text-primary transition-colors shrink-0 max-w-[120px] truncate" onClick={() => navigate(`/repos/${owner}/${repo}`)}>{owner}/{repo}</button>
           <ChevronRight className="w-3 h-3 shrink-0" />
-          <span className="text-foreground shrink-0">代码</span>
+          <button type="button" className="hover:text-primary transition-colors shrink-0" onClick={() => navigate(`/repos/${owner}/${repo}/code`)}>代码</button>
           {pathParts.map((part, i) => (
             <span key={i} className="flex items-center gap-1 shrink-0">
               <ChevronRight className="w-3 h-3 text-muted-foreground" />
@@ -1120,20 +1128,12 @@ export default function CodeBrowserPage() {
           ))}
         </div>
 
-        {/* 分支选择 */}
-        <Select value={currentBranch} onValueChange={setCurrentBranch}>
-          <SelectTrigger className="bg-secondary border-border text-foreground w-36 h-8 text-xs shrink-0">
-            <GitBranch className="w-3 h-3 mr-1 text-muted-foreground" />
-            <SelectValue placeholder="选择分支" />
-          </SelectTrigger>
-          <SelectContent className="bg-popover border-border max-h-48">
-            {branches.map((branch) => (
-              <SelectItem key={branch.name} value={branch.name} className="text-foreground font-mono text-sm">
-                {branch.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* 桌面端：当前分支显示（只读，切换在文件树里） */}
+        {currentBranch && (
+          <Badge variant="outline" className="border-border text-muted-foreground hidden md:flex items-center gap-1 h-6 text-xs shrink-0">
+            <GitBranch className="w-3 h-3" />{currentBranch}
+          </Badge>
+        )}
 
         {/* 桌面端：收起/展开侧边树 */}
         <Button
@@ -1152,20 +1152,31 @@ export default function CodeBrowserPage() {
 
         {/* 桌面端固定侧边树 */}
         {treeVisible && (
-          <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-border bg-sidebar overflow-hidden">
+          <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-border bg-sidebar overflow-hidden">
             <FileTree
               owner={owner!}
               repo={repo!}
               branch={currentBranch}
+              branches={branches}
+              onBranchChange={setCurrentBranch}
               activePath={filePath || undefined}
               refreshKey={treeRefreshKey}
               onFileClick={(item) => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}
               onNewFile={(dirPath) => openAction('new-file', undefined, dirPath)}
               onNewFolder={(dirPath) => openAction('new-folder', undefined, dirPath)}
+              onUpload={(dirPath) => { setPendingDirPath(dirPath); openAction('upload', undefined, dirPath); }}
               onRename={(item) => openAction('rename', item)}
+              onMove={(item) => openAction('move', item)}
               onDelete={(item) => {
                 setCommitMsg(`Delete ${item.name}`);
                 openAction(item.type === 'dir' ? 'delete-folder' : 'delete-file', item);
+              }}
+              onDownload={(item) => {
+                if (item.download_url) {
+                  downloadCodeFile(item.download_url, item.name, token ?? '').catch(() =>
+                    toast.error('下载失败，请检查网络或权限')
+                  );
+                }
               }}
             />
           </aside>
@@ -1182,15 +1193,27 @@ export default function CodeBrowserPage() {
                 owner={owner!}
                 repo={repo!}
                 branch={currentBranch}
+                branches={branches}
+                onBranchChange={(b) => { setCurrentBranch(b); setTreeOpen(false); }}
                 activePath={filePath || undefined}
                 refreshKey={treeRefreshKey}
                 onFileClick={(item) => { navigate(`/repos/${owner}/${repo}/code/${item.path}`); setTreeOpen(false); }}
                 onNewFile={(dirPath) => { openAction('new-file', undefined, dirPath); setTreeOpen(false); }}
                 onNewFolder={(dirPath) => { openAction('new-folder', undefined, dirPath); setTreeOpen(false); }}
+                onUpload={(dirPath) => { setPendingDirPath(dirPath); openAction('upload', undefined, dirPath); setTreeOpen(false); }}
                 onRename={(item) => { openAction('rename', item); setTreeOpen(false); }}
+                onMove={(item) => { openAction('move', item); setTreeOpen(false); }}
                 onDelete={(item) => {
                   setCommitMsg(`Delete ${item.name}`);
                   openAction(item.type === 'dir' ? 'delete-folder' : 'delete-file', item);
+                  setTreeOpen(false);
+                }}
+                onDownload={(item) => {
+                  if (item.download_url) {
+                    downloadCodeFile(item.download_url, item.name, token ?? '').catch(() =>
+                      toast.error('下载失败，请检查网络或权限')
+                    );
+                  }
                   setTreeOpen(false);
                 }}
               />
@@ -1201,34 +1224,85 @@ export default function CodeBrowserPage() {
         {/* 右侧内容区 */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* 路径操作工具条 */}
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-secondary/20 shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-secondary/20 shrink-0">
             {filePath ? (
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 shrink-0"
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 shrink-0 px-2"
                 onClick={() => {
                   const parentParts = pathParts.slice(0, -1);
                   navigate(`/repos/${owner}/${repo}/code${parentParts.length > 0 ? '/' + parentParts.join('/') : ''}`);
                 }}>
-                <ArrowLeft className="w-3.5 h-3.5" />返回上级
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">返回上级</span>
               </Button>
             ) : (
-              <span className="text-xs text-muted-foreground px-1">根目录</span>
+              <span className="text-xs text-muted-foreground px-1 font-mono">/</span>
             )}
             <div className="flex-1" />
             {/* 目录操作按钮（仅目录页显示） */}
             {!currentFile && !loading && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1"
+              <div className="flex items-center gap-1 shrink-0">
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1 px-2"
                   onClick={() => openAction('new-file')}>
                   <FilePlus className="w-3 h-3" /><span className="hidden sm:inline">新建文件</span>
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1"
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1 px-2"
                   onClick={() => openAction('new-folder')}>
                   <FolderPlus className="w-3 h-3" /><span className="hidden sm:inline">新建文件夹</span>
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1"
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground border border-border hover:bg-secondary gap-1 px-2"
                   onClick={() => openAction('upload')}>
                   <Upload className="w-3 h-3" /><span className="hidden sm:inline">上传</span>
                 </Button>
+              </div>
+            )}
+            {/* 文件查看时的操作栏 */}
+            {currentFile && !loading && (
+              <div className="flex items-center gap-1 shrink-0">
+                {currentFile.download_url && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 px-2"
+                    title="下载文件"
+                    onClick={async () => {
+                      try { await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? ''); }
+                      catch { toast.error('下载失败'); }
+                    }}>
+                    <Download className="w-3.5 h-3.5" /><span className="hidden sm:inline">下载</span>
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 px-2"
+                  title="复制路径"
+                  onClick={() => { navigator.clipboard.writeText(currentFile.path); toast.success('路径已复制'); }}>
+                  <ClipboardCopy className="w-3.5 h-3.5" /><span className="hidden md:inline">复制路径</span>
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 px-2"
+                  title="查看提交历史"
+                  onClick={() => navigate(`/repos/${owner}/${repo}/commits/${currentBranch}?path=${currentFile.path}`)}>
+                  <History className="w-3.5 h-3.5" /><span className="hidden md:inline">历史</span>
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:bg-secondary shrink-0">
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={() => { const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${currentBranch}/${currentFile.path}`; navigator.clipboard.writeText(rawUrl); toast.success('Raw 链接已复制'); }}>
+                      <Link className="w-3.5 h-3.5 mr-2" />复制 Raw 链接
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => openAction('rename', currentFile)}>
+                      <Pencil className="w-3.5 h-3.5 mr-2" />重命名
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openAction('move', currentFile)}>
+                      <MoveRight className="w-3.5 h-3.5 mr-2" />移动到...
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => { setCommitMsg(`Delete ${currentFile.name}`); openAction('delete-file', currentFile); }}>
+                      <Trash2 className="w-3.5 h-3.5 mr-2" />删除文件
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
           </div>
@@ -1313,34 +1387,91 @@ export default function CodeBrowserPage() {
                 </Button>
               </div>
             ) : (
-              contents.map((item) => (
-                <ContextMenu key={item.sha}>
-                  <ContextMenuTrigger asChild>
-                    <div className="flex items-center group hover:bg-secondary/50 transition-colors cursor-context-menu">
-                      <button
-                        type="button"
-                        className="flex-1 flex items-center gap-3 px-4 py-2.5 text-left min-w-0"
-                        onClick={() => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}
-                      >
-                        <FileItemIcon filename={item.name} isDir={item.type === 'dir'} size="w-4 h-4" />
-                        <span className={`text-sm font-mono flex-1 min-w-0 truncate ${item.type === 'dir' ? 'text-foreground font-medium' : 'text-foreground/90'} group-hover:text-primary transition-colors`}>
-                          {item.name}
-                        </span>
-                        {item.size > 0 && (
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            {item.size < 1024 ? `${item.size} B` : `${(item.size / 1024).toFixed(1)} KB`}
+              contents.map((item) => {
+                const isDir = item.type === 'dir';
+                return (
+                  <ContextMenu key={item.sha}>
+                    <ContextMenuTrigger asChild>
+                      <div className="flex items-center group hover:bg-secondary/50 transition-colors cursor-pointer">
+                        {/* 主点击区 */}
+                        <button
+                          type="button"
+                          className="flex-1 flex items-center gap-3 px-4 py-2.5 text-left min-w-0"
+                          onClick={() => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}
+                        >
+                          <FileItemIcon filename={item.name} isDir={isDir} size="w-4 h-4" />
+                          <span className={`text-sm font-mono flex-1 min-w-0 truncate ${isDir ? 'text-foreground font-medium' : 'text-foreground/90'} group-hover:text-primary transition-colors`}>
+                            {item.name}
                           </span>
-                        )}
-                      </button>
-                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 mr-3 group-hover:text-primary transition-colors" />
-                    </div>
-                  </ContextMenuTrigger>
-                  {item.type === 'dir'
-                    ? <FolderContextMenuContent item={item} />
-                    : <FileContextMenuContent item={item} />
-                  }
-                </ContextMenu>
-              ))
+                          {item.size > 0 && (
+                            <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
+                              {item.size < 1024 ? `${item.size} B` : `${(item.size / 1024).toFixed(1)} KB`}
+                            </span>
+                          )}
+                        </button>
+                        {/* Hover 快捷操作（桌面端 hover 显示，移动端靠右键菜单） */}
+                        <div
+                          className="hidden md:flex items-center gap-0.5 mr-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {!isDir && item.download_url && (
+                            <Button variant="ghost" size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                              title="下载"
+                              onClick={async (e) => { e.stopPropagation(); try { await downloadCodeFile(item.download_url!, item.name, token ?? ''); } catch { toast.error('下载失败'); } }}>
+                              <Download className="w-3 h-3" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            title="复制路径"
+                            onClick={(e) => { e.stopPropagation(); handleCopyPath(item.path); }}>
+                            <ClipboardCopy className="w-3 h-3" />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                title="更多操作">
+                                <MoreHorizontal className="w-3 h-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem onClick={() => openAction('rename', item)}>
+                                <Pencil className="w-3.5 h-3.5 mr-2" />重命名
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openAction('move', item)}>
+                                <MoveRight className="w-3.5 h-3.5 mr-2" />移动到...
+                              </DropdownMenuItem>
+                              {!isDir && (
+                                <DropdownMenuItem onClick={() => handleCopyRawLink(item.path)}>
+                                  <Link className="w-3.5 h-3.5 mr-2" />复制 Raw 链接
+                                </DropdownMenuItem>
+                              )}
+                              {!isDir && (
+                                <DropdownMenuItem onClick={() => navigate(`/repos/${owner}/${repo}/commits/${currentBranch}?path=${item.path}`)}>
+                                  <History className="w-3.5 h-3.5 mr-2" />查看历史
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => { setCommitMsg(`Delete ${item.name}`); openAction(isDir ? 'delete-folder' : 'delete-file', item); }}>
+                                <Trash2 className="w-3.5 h-3.5 mr-2" />删除{isDir ? '文件夹' : '文件'}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 mr-3 group-hover:text-primary transition-colors md:group-hover:opacity-0" />
+                      </div>
+                    </ContextMenuTrigger>
+                    {isDir
+                      ? <FolderContextMenuContent item={item} />
+                      : <FileContextMenuContent item={item} />
+                    }
+                  </ContextMenu>
+                );
+              })
             )}
           </div>
         )}
