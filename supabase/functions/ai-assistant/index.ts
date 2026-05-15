@@ -623,7 +623,13 @@ async function patchFile(
     const { content: fullContent, sha: fileSha, totalLines } = fetched;
     const allLines = fullContent.split("\n");
 
-    // 参数边界校验（智能诊断）
+    // 参数边界校验（智能诊断）——先强制转成 number，防止 AI 传入字符串行号时字符串比较出错
+    startLine = Number(startLine);
+    endLine   = Number(endLine);
+    if (isNaN(startLine) || isNaN(endLine)) {
+      return `⚠️ 参数类型错误：start_line/end_line 必须是数字，收到 start_line=${startLine}, end_line=${endLine}。` +
+        `\n请确保 JSON 中行号为数字而非字符串，例如 "start_line":"10" → "start_line":10`;
+    }
     if (startLine < 1 || endLine < startLine || startLine > totalLines) {
       const diagHint =
         startLine > totalLines
@@ -882,15 +888,42 @@ async function batchPatch(
     const { content: fullContent, sha: fileSha, totalLines } = fetched;
     const allLines = fullContent.split("\n");
 
-    // 2. 校验所有 patch 的行号
-    for (const p of patches) {
-      if (p.start_line < 1 || p.end_line < p.start_line || p.start_line > totalLines) {
-        return `行号超出范围：文件共 ${totalLines} 行，patch {start_line:${p.start_line}, end_line:${p.end_line}} 无效`;
+    // 2. 归一化行号类型（AI 有时将行号作为字符串传入，字符串比较会产生错误结果，如 "105" < "98" = true）
+    const normalized = patches.map((p, idx) => ({
+      start_line: Number(p.start_line),
+      end_line:   Number(p.end_line),
+      content:    p.content ?? "",
+      _idx:       idx,
+    }));
+
+    // 3. 逐项校验行号，分别给出精确原因
+    for (const p of normalized) {
+      if (isNaN(p.start_line) || isNaN(p.end_line)) {
+        return `参数类型错误：patch[${p._idx}] 的 start_line/end_line 必须是数字，` +
+          `当前值 start_line=${patches[p._idx].start_line}, end_line=${patches[p._idx].end_line}。` +
+          `\n提示：请确保 patches JSON 中行号为数字而非字符串，例如 {"start_line":10,"end_line":12}`;
+      }
+      if (p.start_line < 1) {
+        return `行号无效：patch[${p._idx}] start_line=${p.start_line} 必须 ≥ 1。` +
+          `\n文件共 ${totalLines} 行，请 read_file 确认行号后重试。`;
+      }
+      if (p.end_line < p.start_line) {
+        return `行号无效：patch[${p._idx}] end_line(${p.end_line}) < start_line(${p.start_line})，` +
+          `结束行不能小于起始行。\n请 read_file 确认正确的行范围后重试。`;
+      }
+      if (p.start_line > totalLines) {
+        return `行号超出范围：patch[${p._idx}] start_line=${p.start_line} 超出文件末尾（共 ${totalLines} 行）。` +
+          `\n请先 read_file 获取最新内容和行号，再重新调用 batch_patch。`;
+      }
+      if (p.end_line > totalLines) {
+        // end_line 超限：自动截断到文件末尾并给出明确提示，不视为错误
+        console.warn(`[batch_patch] patch[${p._idx}] end_line=${p.end_line} 超出文件共 ${totalLines} 行，已自动截断至 ${totalLines}`);
+        p.end_line = totalLines;
       }
     }
 
-    // 3. 按 start_line 倒序处理（从文件末尾往前改），防止行号偏移
-    const sorted = [...patches].sort((a, b) => b.start_line - a.start_line);
+    // 4. 按 start_line 倒序处理（从文件末尾往前改），防止行号偏移
+    const sorted = [...normalized].sort((a, b) => b.start_line - a.start_line);
 
     // 保存每处修改的 diff 信息（用原始行内容）
     const diffSnapshots: string[] = [];
@@ -932,7 +965,7 @@ async function batchPatch(
       workLines.splice(p.start_line - 1, safeEnd - p.start_line + 1, ...newLines);
     }
 
-    // 4. 写回 GitHub（单次 commit）
+    // 5. 写回 GitHub（单次 commit）
     const encoded = btoa(unescape(encodeURIComponent(workLines.join("\n"))));
     const body: Record<string, string> = { message: commitMessage, content: encoded, sha: fileSha };
     if (branch) body.branch = branch;
