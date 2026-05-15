@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
-  Bot, User, Send, Square, Trash2, Settings,
+  User, Send, Square, Trash2, Settings,
   Sparkles, AlertCircle,
   RefreshCw, Plus, GitPullRequest, History, ArrowLeft, Loader2,
   Zap, FolderSearch, PanelRight, Wrench, ListChecks, WifiOff, CheckCircle2, XCircle,
@@ -32,7 +32,7 @@ import InlineActivityPanel from '@/components/ai/InlineActivityPanel';
 // ── 共享工具层 ────────────────────────────────────────────────────────────────
 import {
   getModelDef, loadModelConfig, saveModelConfig,
-  parseChunk, parseTypedChunk, renderMarkdown, ThinkingBlock, QUICK_PROMPTS,
+  parseChunk, parseTypedChunk, renderMarkdown, ThinkingBlock, QUICK_PROMPTS, ModelAvatar,
 } from '@/components/ai/aiUtils';
 import { upsertSession, insertMessages } from '@/components/ai/aiSupabase';
 import type { Message, ModelConfig, ChatSession, ChatSessionMessage, ToolHistoryItem, TaskPlanStep, InlineStep, InlineTool, Attachment, FileRequest } from '@/components/ai/aiTypes';
@@ -1028,57 +1028,62 @@ export default function AiAssistantPage() {
 
   if (step === 'repo') {
     return (
-      <div className="flex flex-col items-center gap-6 p-4 md:p-8 max-w-2xl mx-auto">
-        {/* 标题区 */}
-        <div className="flex flex-col items-center gap-3 text-center w-full">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <Sparkles className="w-7 h-7 text-primary" />
-          </div>
-          <h1 className="text-xl font-bold text-foreground text-balance">AI 仓库助手</h1>
-          <p className="text-sm text-muted-foreground text-pretty max-w-sm">
-            选择一个仓库，AI 将帮你浏览、搜索并修改其中的文件
-          </p>
-        </div>
+      <div className="flex flex-col min-h-0 h-full overflow-y-auto">
+        <div className="flex flex-col items-center gap-5 px-4 pt-6 pb-8 max-w-lg mx-auto w-full">
 
-        {/* 顶部操作：模型设置 + 历史对话 */}
-        <div className="flex items-center gap-3 w-full max-w-lg">
-          <div className="flex items-center gap-3 flex-1 min-w-0 bg-muted/40 rounded-xl px-4 py-3 border border-border">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground">当前模型</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-sm font-medium text-foreground">{currentModelDef.label}</span>
+          {/* ── Hero 区 ── */}
+          <div className="flex flex-col items-center gap-2 text-center w-full">
+            {/* 大图标 */}
+            <div className="relative">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+                <Sparkles className="w-8 h-8 text-white" />
+              </div>
+              {/* 在线指示点 */}
+              <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-background" />
+            </div>
+            <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">AI 仓库助手</h1>
+            <p className="text-sm text-muted-foreground">选择仓库，开始智能编程</p>
+          </div>
+
+          {/* ── 当前模型 chip ── */}
+          <button
+            onClick={() => setShowModelSettings(true)}
+            className="flex items-center gap-2.5 w-full max-w-sm px-3.5 py-2.5 rounded-xl border border-border bg-card hover:bg-accent/50 transition-colors group"
+          >
+            <ModelAvatar modelDef={currentModelDef} size="sm" />
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-xs text-muted-foreground leading-none mb-0.5">当前模型</p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-foreground truncate">{currentModelDef.label}</span>
                 {currentModelDef.badge && (
-                  <Badge variant="secondary" className="text-[10px] py-0 px-1.5">{currentModelDef.badge}</Badge>
-                )}
-                {modelConfig.model && (
-                  <span className="text-xs text-muted-foreground truncate">· {modelConfig.model}</span>
+                  <Badge variant="secondary" className="text-[10px] py-0 px-1.5 shrink-0">{currentModelDef.badge}</Badge>
                 )}
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setShowModelSettings(true)} className="shrink-0 h-8 gap-1.5">
-              <Settings className="w-3.5 h-3.5" />
-              切换
-            </Button>
+            <Settings className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+          </button>
+
+          {/* ── 仓库选择器 ── */}
+          <div className="w-full max-w-sm">
+            <RepoSelector onSelect={handleSelectRepo} />
           </div>
-          <Button
-            variant="outline" size="sm"
-            onClick={() => setShowHistory(true)}
-            className="shrink-0 h-12 gap-1.5 flex-col text-xs"
-          >
-            <History className="w-4 h-4" />
-            历史
-          </Button>
-        </div>
 
-        {/* 仓库选择器 */}
-        <RepoSelector onSelect={handleSelectRepo} />
+          {/* ── 底部工具栏：历史 + 警告 ── */}
+          <div className="flex items-center gap-2 w-full max-w-sm">
+            <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card hover:bg-accent/50 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <History className="w-4 h-4" />
+              历史对话
+            </button>
+            <div className="flex-1 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-pretty leading-snug">建议在测试仓库或非主分支操作</span>
+            </div>
+          </div>
 
-        {/* 风险提示 */}
-        <div className="flex items-start gap-2 w-full max-w-lg bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-600 dark:text-amber-400 text-pretty">
-            AI 写入文件时将使用你的 GitHub Token 直接提交，建议先在测试仓库或非主分支上操作。
-          </p>
         </div>
 
         <ModelSettingsDialog
@@ -1342,8 +1347,8 @@ export default function AiAssistantPage() {
                 // ── AI：answer 气泡 / 普通单气泡 ─────────────────────────────
                 return (
                   <div key={msg.id} className="flex gap-2.5 flex-row">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-muted border border-border">
-                      <Bot className="w-3.5 h-3.5 text-muted-foreground" />
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                      <ModelAvatar modelDef={currentModelDef} size="sm" />
                     </div>
                     <div className="flex flex-col gap-1 flex-1 min-w-0">
                       <div className={cn(
@@ -1490,7 +1495,7 @@ export default function AiAssistantPage() {
                     className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors group"
                     title="切换模型"
                   >
-                    <Sparkles className="w-3 h-3 group-hover:text-primary shrink-0" />
+                    <ModelAvatar modelDef={currentModelDef} size="sm" />
                     <span className="font-medium">{currentModelDef.label}</span>
                     {modelConfig.model && (
                       <span className="hidden sm:inline text-[10px] opacity-70">· {modelConfig.model}</span>

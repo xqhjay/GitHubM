@@ -24,6 +24,12 @@ export interface ModelDef {
   needEndpoint: boolean;
   keyPlaceholder?: string;
   docsUrl?: string;
+  /** 头像显示文字（1-2字）*/
+  avatarText: string;
+  /** 头像渐变起始色 */
+  avatarFrom: string;
+  /** 头像渐变结束色 */
+  avatarTo: string;
 }
 
 export const MODEL_DEFS: ModelDef[] = [
@@ -34,11 +40,14 @@ export const MODEL_DEFS: ModelDef[] = [
     badge: '免费',
     needKey: false,
     needEndpoint: false,
+    avatarText: '文',
+    avatarFrom: '#e85d04',
+    avatarTo: '#f48c06',
   },
   {
     type: 'gemini',
     label: 'Google Gemini',
-    desc: '谷歌 Gemini 系列，代码能力强，上下文窗口超大（100万 token）',
+    desc: '谷歌 Gemini 系列，上下文窗口超大',
     badge: '免费',
     models: [
       { value: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash（速度快 · 推荐）' },
@@ -49,11 +58,14 @@ export const MODEL_DEFS: ModelDef[] = [
     needEndpoint: false,
     keyPlaceholder: 'AIzaSy-xxxxxxxxxxxxxxxx',
     docsUrl: 'https://aistudio.google.com/app/apikey',
+    avatarText: 'G',
+    avatarFrom: '#1a73e8',
+    avatarTo: '#34a853',
   },
   {
     type: 'deepseek',
     label: 'DeepSeek',
-    desc: '综合代码能力极强，中文理解出色，API 价格极低',
+    desc: '代码能力极强，中文理解出色，低价',
     badge: '低价',
     models: [
       { value: 'deepseek-chat', label: 'DeepSeek V3（综合代码 · 推荐）' },
@@ -64,11 +76,14 @@ export const MODEL_DEFS: ModelDef[] = [
     needEndpoint: false,
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
     docsUrl: 'https://platform.deepseek.com/api-keys',
+    avatarText: 'DS',
+    avatarFrom: '#0ea5e9',
+    avatarTo: '#0284c7',
   },
   {
     type: 'qwen',
-    label: 'Qwen（通义千问）',
-    desc: '阿里云 Qwen 2.5 Coder，最强开源代码模型之一，中文支持优秀',
+    label: 'Qwen 通义千问',
+    desc: '阿里云 Qwen 2.5 Coder，中文支持优秀',
     badge: '免费额度',
     models: [
       { value: 'qwen2.5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B（最强代码 · 推荐）' },
@@ -80,10 +95,13 @@ export const MODEL_DEFS: ModelDef[] = [
     needEndpoint: false,
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
     docsUrl: 'https://dashscope.console.aliyun.com/apiKey',
+    avatarText: '千',
+    avatarFrom: '#7c3aed',
+    avatarTo: '#a855f7',
   },
   {
     type: 'openai',
-    label: 'OpenAI',
+    label: 'OpenAI GPT',
     desc: '需填入 OpenAI API Key',
     models: [
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini（推荐）' },
@@ -94,6 +112,9 @@ export const MODEL_DEFS: ModelDef[] = [
     needEndpoint: false,
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
     docsUrl: 'https://platform.openai.com/api-keys',
+    avatarText: 'AI',
+    avatarFrom: '#10a37f',
+    avatarTo: '#059669',
   },
   {
     type: 'custom',
@@ -102,6 +123,9 @@ export const MODEL_DEFS: ModelDef[] = [
     needKey: true,
     needEndpoint: true,
     keyPlaceholder: 'Bearer token 或 API Key',
+    avatarText: '{}',
+    avatarFrom: '#64748b',
+    avatarTo: '#475569',
   },
 ];
 
@@ -417,4 +441,20 @@ export function renderMarkdown(text: string, onApplyDiff?: (filePath: string) =>
   }
   /* overflow-hidden 约束整个 markdown 区域宽度，让内层代码块的 overflow-x-auto 在气泡边界内滚动 */
   return <div className="flex flex-col gap-0.5 min-w-0 w-full overflow-hidden">{result}</div>;
+}
+
+// ── 模型专属头像组件 ────────────────────────────────────────────────────────────
+export function ModelAvatar({ modelDef, size = 'sm' }: { modelDef: ModelDef; size?: 'sm' | 'md' }) {
+  const dim = size === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-xs';
+  return (
+    <div
+      className={cn(
+        'rounded-full flex items-center justify-center shrink-0 font-bold text-white shadow-sm select-none',
+        dim,
+      )}
+      style={{ background: `linear-gradient(135deg, ${modelDef.avatarFrom}, ${modelDef.avatarTo})` }}
+    >
+      {modelDef.avatarText}
+    </div>
+  );
 }
