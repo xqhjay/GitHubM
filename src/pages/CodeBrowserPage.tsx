@@ -208,6 +208,20 @@ function FileItemIcon({ filename, isDir, isOpen = false, size = 'w-4 h-4' }: {
   return <Icon className={`${size} ${color} shrink-0`} />;
 }
 
+// ── 代码浏览页面内导航栈（sessionStorage，标签页级）────────────────────────
+// 用于在点击面包屑时回溯 browser history，而非推入新条目（避免"返回"跳到错误位置）
+function codeNavKey(owner: string, repo: string) {
+  return `code_nav_${owner}_${repo}`;
+}
+function getCodeNavStack(owner: string, repo: string): string[] {
+  try { return JSON.parse(sessionStorage.getItem(codeNavKey(owner, repo)) || '[]'); }
+  catch { return []; }
+}
+function setCodeNavStack(owner: string, repo: string, stack: string[]) {
+  try { sessionStorage.setItem(codeNavKey(owner, repo), JSON.stringify(stack)); }
+  catch { /* ignore */ }
+}
+
 export default function CodeBrowserPage() {
   const { owner, repo, '*': filePath = '' } = useParams<{ owner: string; repo: string; '*': string }>();
   const navigate = useNavigate();
@@ -319,6 +333,22 @@ export default function CodeBrowserPage() {
       setLoading(false);
     }
   }, [owner, repo, filePath, currentBranch]);
+
+  // ── 导航栈同步：每次 filePath 变化时更新 sessionStorage 导航栈 ───────────────
+  // 这样面包屑点击时可以通过 navigate(-n) 回溯，而不是 push 新条目
+  useEffect(() => {
+    if (!owner || !repo) return;
+    const fullPath = `/repos/${owner}/${repo}/code${filePath ? '/' + filePath : ''}`;
+    const stack = getCodeNavStack(owner, repo);
+    // 如果目标已在栈中（用户用浏览器返回/前进），截断到该点以保持同步
+    const existingIdx = stack.lastIndexOf(fullPath);
+    if (existingIdx >= 0) {
+      setCodeNavStack(owner, repo, stack.slice(0, existingIdx + 1));
+    } else {
+      setCodeNavStack(owner, repo, [...stack, fullPath]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner, repo, filePath]);
 
   useEffect(() => {
     if (!owner || !repo) return;
@@ -1116,14 +1146,27 @@ export default function CodeBrowserPage() {
           {pathParts.map((part, i) => {
             // 渲染时预计算目标路径字符串，onClick 绑定不可变常量，消除闭包时序问题
             const targetPath = pathParts.slice(0, i + 1).join('/');
+            const targetFullPath = `/repos/${owner}/${repo}/code/${targetPath}`;
             const isLast = i === pathParts.length - 1;
+            // 面包屑跳转：若目标路径已在导航栈中，使用 navigate(-n) 回溯历史，
+            // 而非 push 新条目；这样返回键能正确回到上一个位置
+            const handleBreadcrumbClick = () => {
+              const stack = getCodeNavStack(owner!, repo!);
+              const targetIdx = stack.lastIndexOf(targetFullPath);
+              const currentIdx = stack.length - 1;
+              if (targetIdx >= 0 && targetIdx < currentIdx) {
+                navigate(targetIdx - currentIdx); // 负数 = 回溯 N 步
+              } else {
+                navigate(targetFullPath); // 历史中没有则正常 push
+              }
+            };
             return (
               <span key={targetPath} className="flex items-center gap-1 shrink-0">
                 <ChevronRight className="w-3 h-3 text-muted-foreground" />
                 <button
                   type="button"
                   className={`text-sm ${isLast ? 'text-foreground font-medium cursor-default' : 'text-primary hover:underline cursor-pointer'}`}
-                  onClick={isLast ? undefined : () => navigate(`/repos/${owner}/${repo}/code/${targetPath}`)}
+                  onClick={isLast ? undefined : handleBreadcrumbClick}
                 >
                   {part}
                 </button>
@@ -1426,8 +1469,15 @@ export default function CodeBrowserPage() {
             {filePath ? (
               <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:bg-secondary gap-1 shrink-0 px-2"
                 onClick={() => {
-                  const parentParts = pathParts.slice(0, -1);
-                  navigate(`/repos/${owner}/${repo}/code${parentParts.length > 0 ? '/' + parentParts.join('/') : ''}`);
+                  // 优先 navigate(-1) 回溯 browser history，回到实际进入此路径的上一页；
+                  // 若导航栈少于 2 条（直接访问的 URL），则退回计算的父目录
+                  const stack = getCodeNavStack(owner!, repo!);
+                  if (stack.length >= 2) {
+                    navigate(-1);
+                  } else {
+                    const parentParts = pathParts.slice(0, -1);
+                    navigate(`/repos/${owner}/${repo}/code${parentParts.length > 0 ? '/' + parentParts.join('/') : ''}`);
+                  }
                 }}>
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">返回上级</span>
