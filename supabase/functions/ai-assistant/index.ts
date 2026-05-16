@@ -720,6 +720,12 @@ interface GithubContext {
 }
 
 async function githubRequest(ctx: GithubContext, apiPath: string, options: RequestInit = {}) {
+  const isWrite = options.method && options.method !== "GET";
+  // GET 请求强制绕过 GitHub CDN 60s 缓存；写请求不加，避免干扰
+  const cacheHeaders: Record<string, string> = isWrite ? {} : {
+    "Cache-Control": "no-cache, no-store",
+    "Pragma": "no-cache",
+  };
   const res = await fetch(`https://api.github.com${apiPath}`, {
     ...options,
     headers: {
@@ -727,6 +733,7 @@ async function githubRequest(ctx: GithubContext, apiPath: string, options: Reque
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "Content-Type": "application/json",
+      ...cacheHeaders,
       ...((options.headers as Record<string, string>) || {}),
     },
   });
@@ -935,7 +942,11 @@ async function fetchFileContent(
   filePath: string,
   ref?: string,
 ): Promise<{ content: string; sha: string; size: number; totalLines: number } | string> {
-  const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+  // _t 时间戳参数用于绕过 GitHub CDN 60s 缓存，确保每次都拿到最新的 SHA
+  const cacheBust = `_t=${Date.now()}`;
+  const refQuery = ref
+    ? `?ref=${encodeURIComponent(ref)}&${cacheBust}`
+    : `?${cacheBust}`;
   const data = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}${refQuery}`);
   if (Array.isArray(data)) return `"${filePath}" 是目录，请用 file_tree 列出其内容。`;
   if (!data.sha) return `无法读取文件 "${filePath}"：缺少 blob SHA。`;
@@ -1324,15 +1335,40 @@ async function patchFile(
   } catch (e) {
     // ── 智能错误诊断 ────────────────────────────────────────────────────────
     const errMsg = (e as Error).message ?? String(e);
-    // SHA 冲突（409）：文件在本次操作期间被他人修改
+    // SHA 冲突（409）：自动重新获取最新 SHA 并重试一次
     if (errMsg.includes("409") || errMsg.includes("conflict") || errMsg.includes("sha")) {
-      return (
-        `❌ patch_file 失败（SHA 冲突）：文件 "${filePath}" 在你读取后已被修改，本地缓存的 SHA 已过期。\n` +
-        `📋 修复方案（按顺序执行）：\n` +
-        `  1. 重新读取文件获取最新内容和 SHA：{"tool":"read_file","path":"${filePath}"}\n` +
-        `  2. 根据最新内容重新定位目标行号\n` +
-        `  3. 再次调用 patch_file 写入修改`
-      );
+      try {
+        console.warn(`[patch_file] SHA 冲突，自动重新获取最新 SHA 并重试：${filePath}`);
+        // 重新读取完整文件（带缓存破坏），获取最新 SHA + 最新内容
+        const retryFetched = await fetchFileContent(ctx, filePath);
+        if (typeof retryFetched === "string") return retryFetched;
+        const { content: retryContent, sha: retrySha, totalLines: retryTotalLines } = retryFetched;
+        const retryAllLines = retryContent.split("\n");
+        // 边界校验（用新的行数）
+        const retryStart = Math.max(1, Math.min(startLine, retryTotalLines));
+        const retryEnd   = Math.min(endLine, retryTotalLines);
+        const retryBefore = retryAllLines.slice(0, retryStart - 1);
+        const retryAfter  = retryAllLines.slice(retryEnd);
+        const retryPatched = [...retryBefore, ...newContent.split("\n"), ...retryAfter].join("\n");
+        const retryEncoded = btoa(unescape(encodeURIComponent(retryPatched)));
+        const retryBody: Record<string, string> = { message: commitMessage, content: retryEncoded, sha: retrySha };
+        if (branch) retryBody.branch = branch;
+        const retryResult = await githubRequest(
+          ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}`,
+          { method: "PUT", body: JSON.stringify(retryBody) },
+        );
+        const retryCommitSha = (retryResult.commit?.sha as string)?.slice(0, 7) || "成功";
+        return `✅ patch "${filePath}" 成功（自动重试）：第 ${retryStart}–${retryEnd} 行，commit: ${retryCommitSha}，信息：${commitMessage}\n⚠️ 注：首次写入遇到 SHA 冲突（CDN 缓存问题），已自动重新获取最新 SHA 并重试成功。`;
+      } catch (retryErr) {
+        return (
+          `❌ patch_file 失败（SHA 冲突，自动重试后仍失败）：文件 "${filePath}"\n` +
+          `📋 请手动执行：\n` +
+          `  1. 调用 {"tool":"read_file","path":"${filePath}"} 获取最新内容和 SHA\n` +
+          `  2. 根据最新内容重新定位目标行号\n` +
+          `  3. 再次调用 patch_file 写入修改\n` +
+          `重试错误：${(retryErr as Error).message}`
+        );
+      }
     }
     // 分支保护（422）：无法直接 push
     if (errMsg.includes("422") || errMsg.includes("branch protection") || errMsg.includes("protected branch")) {
@@ -1354,12 +1390,7 @@ async function writeFile(
   ctx: GithubContext, filePath: string, content: string,
   commitMessage: string, branch?: string
 ): Promise<string> {
-  try {
-    let sha: string | undefined;
-    try {
-      const existing = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}`);
-      sha = existing.sha;
-    } catch { /* 新文件 */ }
+  const _writeOnce = async (sha?: string): Promise<string> => {
     const body: Record<string, string> = {
       message: commitMessage,
       content: btoa(unescape(encodeURIComponent(content))),
@@ -1370,7 +1401,30 @@ async function writeFile(
       method: "PUT", body: JSON.stringify(body),
     });
     return `✅ 文件 "${filePath}" 已${sha ? "更新" : "创建"}，提交：${result.commit?.sha?.slice(0, 7) || "成功"}，信息：${commitMessage}`;
-  } catch (e) { return diagnose4xx(e, "write_file"); }
+  };
+
+  try {
+    let sha: string | undefined;
+    try {
+      // 时间戳缓存破坏：确保拿到的是真实 SHA，而非 CDN 缓存的旧值
+      const existing = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?_t=${Date.now()}`);
+      sha = existing.sha;
+    } catch { /* 新文件 */ }
+    return await _writeOnce(sha);
+  } catch (e) {
+    const errMsg = (e as Error).message ?? String(e);
+    // 409 SHA 冲突：自动用最新 SHA 重试一次（应对 CDN 缓存返回旧 SHA 的场景）
+    if (errMsg.includes("409") || errMsg.includes("conflict") || errMsg.includes("sha")) {
+      try {
+        console.warn(`[write_file] SHA 冲突，自动重新获取最新 SHA 并重试：${filePath}`);
+        const latest = await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/contents/${filePath}?_t=${Date.now()}`);
+        return await _writeOnce(latest.sha as string);
+      } catch (retryErr) {
+        return diagnose4xx(retryErr, "write_file（自动重试）");
+      }
+    }
+    return diagnose4xx(e, "write_file");
+  }
 }
 
 async function searchCode(ctx: GithubContext, query: string): Promise<string> {
