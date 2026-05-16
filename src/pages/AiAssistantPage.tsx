@@ -41,13 +41,40 @@ import { appendUsageRecord } from '@/components/ai/usageStats';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+// ── 会话持久化（sessionStorage）─────────────────────────────────────────────
+// 使用 sessionStorage（标签页级）：关闭 APP 自动清除，切换页面不丢失
+const AI_SESSION_KEY = 'ai_chat_session_v1';
+
+interface PersistedAiSession {
+  step: 'repo' | 'chat';
+  selectedRepo: GitHubRepo | null;
+  selectedBranch: string;
+  sessionId: string | null;
+  messages: Message[];
+}
+
+function loadPersistedSession(): PersistedAiSession | null {
+  try {
+    const raw = sessionStorage.getItem(AI_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedAiSession;
+    // 只恢复 chat 步骤且有仓库信息时才算有效
+    if (parsed.step !== 'chat' || !parsed.selectedRepo?.full_name) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+// 模块级缓存，避免多次解析
+const _initialSession = loadPersistedSession();
+
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
 export default function AiAssistantPage() {
   const { token, user } = useAuth();
-  const [step, setStep] = useState<'repo' | 'chat'>('repo');
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [step, setStep] = useState<'repo' | 'chat'>(_initialSession?.step ?? 'repo');
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(_initialSession?.selectedRepo ?? null);
+  const [messages, setMessages] = useState<Message[]>(_initialSession?.messages ?? []);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>(loadModelConfig);
@@ -77,13 +104,13 @@ export default function AiAssistantPage() {
   // 超时/停止后的恢复提示信息
   const [pendingResumeInfo, setPendingResumeInfo] = useState<{ workflowId?: string; taskSummary: string } | null>(null);
   // 当前会话 ID（用于持久化）
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(_initialSession?.sessionId ?? null);
   // 待持久化消息队列（本轮对话新增的）
   const pendingMsgsRef = useRef<Array<{ role: string; content: string }>>([]);
   // 分支相关
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
-  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState(_initialSession?.selectedBranch ?? '');
   const [isProtectedBranch, setIsProtectedBranch] = useState(false);
 
   // 自主模式：永久开启，给予最大权限
@@ -110,6 +137,29 @@ export default function AiAssistantPage() {
   const [isNetworkInterrupted, setIsNetworkInterrupted] = useState(false);
   /** 当前流式对应的 AI 消息 id，重连时用于定位消息 */
   const streamingAiMsgIdRef = useRef<string | null>(null);
+
+  // ── sessionStorage 持久化：state 变化时同步保存，切换页面不丢失对话 ────────
+  useEffect(() => {
+    try {
+      const session: PersistedAiSession = {
+        step,
+        selectedRepo,
+        selectedBranch,
+        sessionId,
+        // 过滤掉 streaming=true 的气泡，避免恢复后出现残留「流式中」气泡
+        messages: messages.filter(m => !m.streaming),
+      };
+      sessionStorage.setItem(AI_SESSION_KEY, JSON.stringify(session));
+    } catch { /* 存储满时静默忽略 */ }
+  }, [step, selectedRepo, selectedBranch, sessionId, messages]);
+
+  // ── 恢复对话时重新加载分支列表 ───────────────────────────────────────────────
+  useEffect(() => {
+    if (_initialSession?.step === 'chat' && _initialSession.selectedRepo) {
+      loadBranches(_initialSession.selectedRepo);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 仅挂载时执行一次
 
   // Textarea 自动调整高度
   useEffect(() => {
@@ -950,6 +1000,8 @@ export default function AiAssistantPage() {
   };
 
   const handleBack = () => {
+    // 返回仓库选择页时清除持久化，让下次进入从头开始
+    try { sessionStorage.removeItem(AI_SESSION_KEY); } catch { /* ignore */ }
     setStep('repo');
     setSelectedRepo(null);
     setMessages([]);
@@ -965,11 +1017,18 @@ export default function AiAssistantPage() {
     setSessionId(null);
     pendingMsgsRef.current = [];
     setPendingResumeInfo(null);
-    setMessages([{
+    const welcomeMsg: Message = {
       id: 'welcome-' + Date.now(),
       role: 'assistant',
       content: `对话已清空。当前目标分支：\`${selectedBranch}\`。有什么可以帮你？`,
-    }]);
+    };
+    setMessages([welcomeMsg]);
+    // 清空后立即更新 sessionStorage
+    try {
+      sessionStorage.setItem(AI_SESSION_KEY, JSON.stringify({
+        step: 'chat', selectedRepo, selectedBranch, sessionId: null, messages: [welcomeMsg],
+      }));
+    } catch { /* ignore */ }
   };
 
   // 文件浏览器插入文本（追加到输入框末尾）
@@ -1289,20 +1348,39 @@ export default function AiAssistantPage() {
             className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <div className="flex flex-col gap-3 p-4 pb-2">
+            <div className="flex flex-col p-4 pb-2">
               {messages.map((msg, idx) => {
                 const isLastAi = idx === lastAiIdx;
+                const prevMsg = idx > 0 ? messages[idx - 1] : null;
+
+                // 间距策略：
+                // - 用户消息前 / 首条消息：较大间距（mt-4）体现对话轮次分隔
+                // - 非首条 AI 功能气泡（step/tool/thinking）紧跟上一 AI 气泡：紧凑间距（mt-1）
+                // - 其他 AI 气泡（answer/普通）接在功能气泡后：正常间距（mt-2）
+                const isAiFuncBubble = msg.bubbleType === 'step' || msg.bubbleType === 'tool' || msg.bubbleType === 'thinking';
+                const prevIsAiBubble = prevMsg && prevMsg.role === 'assistant';
+                const prevIsAiFuncBubble = prevMsg && (prevMsg.bubbleType === 'step' || prevMsg.bubbleType === 'tool' || prevMsg.bubbleType === 'thinking');
+
+                const marginClass = idx === 0
+                  ? ''
+                  : msg.role === 'user'
+                    ? 'mt-5'
+                    : isAiFuncBubble && prevIsAiBubble
+                      ? 'mt-1'
+                      : prevIsAiFuncBubble
+                        ? 'mt-2'
+                        : 'mt-3';
 
                 // ── 用户消息 ─────────────────────────────────────────────────
                 if (msg.role === 'user') {
                   return (
-                    <div key={msg.id} className="flex gap-2.5 flex-row-reverse">
+                    <div key={msg.id} className={cn("flex gap-2.5 flex-row-reverse", marginClass)}>
                       <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-primary text-primary-foreground">
                         <User className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex flex-col gap-1 min-w-0 max-w-[85%]">
                         <div className="rounded-2xl rounded-tr-sm px-4 py-3 text-sm min-w-0 bg-primary text-primary-foreground">
-                          <p className="whitespace-pre-wrap break-words break-all">{msg.content}</p>
+                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                           {msg.attachments && msg.attachments.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
                               {msg.attachments.map(att => (
@@ -1324,8 +1402,8 @@ export default function AiAssistantPage() {
                 // ── AI：step 气泡（工具执行节点）────────────────────────────
                 if (msg.bubbleType === 'step') {
                   return (
+                    <div key={msg.id} className={marginClass}>
                     <StepBubble
-                      key={msg.id}
                       msg={msg}
                       onUploadFile={(msgId, reqId, file) => {
                         setMessages(prev => prev.map(m =>
@@ -1345,30 +1423,36 @@ export default function AiAssistantPage() {
                         else reader.readAsText(file);
                       }}
                     />
+                    </div>
                   );
                 }
 
                 // ── AI：思考气泡 ─────────────────────────────────────────────
                 if (msg.bubbleType === 'thinking') {
-                  return <ThinkingBubble key={msg.id} msg={msg} />;
+                  return (
+                    <div key={msg.id} className={marginClass}>
+                      <ThinkingBubble msg={msg} />
+                    </div>
+                  );
                 }
 
                 // ── AI：工具调用气泡 ─────────────────────────────────────────
                 if (msg.bubbleType === 'tool') {
-                  return <ToolBubble key={msg.id} msg={msg} />;
+                  return (
+                    <div key={msg.id} className={marginClass}>
+                      <ToolBubble msg={msg} />
+                    </div>
+                  );
                 }
 
                 // ── AI：answer 气泡 / 普通单气泡 ─────────────────────────────
                 return (
-                  <div key={msg.id} className="flex gap-2.5 flex-row">
+                  <div key={msg.id} className={cn("flex gap-2.5 flex-row", marginClass)}>
                     <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5">
                       <ModelAvatar modelDef={currentModelDef} size="sm" />
                     </div>
                     <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <div className={cn(
-                        'rounded-2xl rounded-tl-sm px-4 py-3 text-sm min-w-0 bg-muted/60 border border-border text-foreground',
-                        !msg.streaming && msg.content.length > 600 ? 'max-h-[60vh] overflow-y-auto' : ''
-                      )}>
+                      <div className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm min-w-0 bg-muted/60 border border-border text-foreground">
                         <div className="min-w-0">
                           {/* 正文内容 */}
                           {msg.content ? (
