@@ -612,7 +612,6 @@ export default function CodeBrowserPage() {
   };
 
   const pathParts = filePath ? filePath.split('/') : [];
-  const navigateTo = (parts: string[]) => navigate(`/repos/${owner}/${repo}/code/${parts.join('/')}`);
 
   // 文件右键菜单项
   const FileContextMenuContent = ({ item }: { item: GitHubContent }) => (
@@ -1114,18 +1113,23 @@ export default function CodeBrowserPage() {
           <button type="button" className="hover:text-primary transition-colors shrink-0 max-w-[120px] truncate" onClick={() => navigate(`/repos/${owner}/${repo}`)}>{owner}/{repo}</button>
           <ChevronRight className="w-3 h-3 shrink-0" />
           <button type="button" className="hover:text-primary transition-colors shrink-0" onClick={() => navigate(`/repos/${owner}/${repo}/code`)}>代码</button>
-          {pathParts.map((part, i) => (
-            <span key={i} className="flex items-center gap-1 shrink-0">
-              <ChevronRight className="w-3 h-3 text-muted-foreground" />
-              <button
-                type="button"
-                className={`text-sm ${i === pathParts.length - 1 ? 'text-foreground font-medium' : 'text-primary hover:underline'}`}
-                onClick={() => i < pathParts.length - 1 ? navigateTo(pathParts.slice(0, i + 1)) : undefined}
-              >
-                {part}
-              </button>
-            </span>
-          ))}
+          {pathParts.map((part, i) => {
+            // 渲染时预计算目标路径字符串，onClick 绑定不可变常量，消除闭包时序问题
+            const targetPath = pathParts.slice(0, i + 1).join('/');
+            const isLast = i === pathParts.length - 1;
+            return (
+              <span key={targetPath} className="flex items-center gap-1 shrink-0">
+                <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                <button
+                  type="button"
+                  className={`text-sm ${isLast ? 'text-foreground font-medium cursor-default' : 'text-primary hover:underline cursor-pointer'}`}
+                  onClick={isLast ? undefined : () => navigate(`/repos/${owner}/${repo}/code/${targetPath}`)}
+                >
+                  {part}
+                </button>
+              </span>
+            );
+          })}
         </div>
 
         {/* 移动端：分支切换按钮 */}
