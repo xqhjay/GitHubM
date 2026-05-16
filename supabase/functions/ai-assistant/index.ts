@@ -3238,14 +3238,8 @@ ${branchNote}
 3. **自主执行**：禁止询问用户是否继续，禁止提前结束，工具报错时分析原因后继续。
 4. **任务完成**：全部步骤完成后，在回复最开头输出 TASK_DONE，然后给一句简洁的完成总结。
 
-## 工具自我改进（重要）
-在执行过程中，如果你发现某个工具存在以下情况，**立即**调用 report_tool_issue 上报：
-- 工具返回的信息不完整或格式不便解析
-- 工具缺少某个必要参数（如分页、过滤条件）
-- 工具无法处理某种场景导致任务失败或绕行
-- 错误信息不够详细，难以定位问题
-上报后，如果你能想到具体修复方案，继续调用 propose_tool_fix 提交代码改进。
-**上报不会中断任务**，发现即报，然后继续执行。
+## 工具自我改进（注意：执行途中才上报，不可作为第一个工具调用）
+在执行过程中，**首先输出 PLAN 并开始执行任务步骤**；当遇到工具缺陷时（信息不完整、参数不够用、无法处理某种场景），再调用 report_tool_issue 上报。
 
 ## 开发需求分析工作流（新功能/重构必须遵循）
 触发条件：用户说"想新增"、"帮我实现"、"重构"等涉及新功能或较大改动时：
@@ -4874,6 +4868,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const MAX_NUDGE = 2;
     // 总轮次计数（跨批次）
     let totalRound = 0;
+    // 任务计划是否已成功提取并发送（用于替代 totalRound===0 的一次性判断，
+    // 修复：FC 模式 LLM 在 round 0 先调用 report_tool_issue 而不输出 PLAN，
+    // 导致 totalRound===0 时 rawText 为空，计划永远不被提取的 bug）
+    let planSent = false;
     // 智能重试：记录每个步骤（stepId）的失败次数，超过 MAX_SMART_RETRIES 才终止
     const stepFailCount = new Map<string, number>();
     const MAX_SMART_RETRIES = 2;
@@ -4986,11 +4984,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const rawText = assistantText;
       assistantText = stripCodeFences(assistantText);
 
-      // ── 首轮（每批第 0 轮）提取任务计划 ─────────────────────────────────────
+      // ── 提取任务计划（每次 LLM 回复都尝试，直到成功提取为止）────────────────
       // 恢复执行时跳过：workflowDbId 已由断点恢复设置，不能覆盖；且 AI 不应重输 PLAN
-      if (totalRound === 0 && !isResuming) {
+      // 使用 planSent 标志替代 totalRound===0：
+      //   修复 FC 模式下 LLM 在首轮调用 report_tool_issue 而不输出 PLAN 的 bug：
+      //   此时 rawText 为空或无 PLAN 块，旧的 totalRound===0 判断一过永不再提取，
+      //   导致 taskPlanSteps 始终为空，工作流进度面板无法显示步骤进度。
+      if (!planSent && !isResuming) {
         const plan = extractPlan(rawText); // 使用原始文本（stripCodeFences 在内部处理）
         if (plan && plan.length > 0) {
+          planSent = true; // 标记：后续轮次不再重复提取
           await sendTyped({ type: "plan", steps: plan });
           // 持久化：创建工作流 + 步骤
           if (sb) {
