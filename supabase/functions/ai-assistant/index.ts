@@ -19,7 +19,7 @@ interface ModelConfig {
   api_key?: string;
   /** 自定义接口地址（custom 时必填） */
   endpoint?: string;
-  /** 具体模型名称，如 deepseek-chat / gemini-2.5-flash-preview-05-20 */
+  /** 具体模型名称，如 deepseek-v4-flash / deepseek-v4-pro / gemini-2.5-flash-preview-05-20 */
   model?: string;
   /**
    * 采样温度（0–2）。
@@ -34,11 +34,26 @@ interface ModelConfig {
 // 仅用于支持 FC 的模型（deepseek / openai / gemini / qwen）
 // 文心 / custom 仍走 system prompt 纯文本模式
 
+/**
+ * 判断 DeepSeek 模型是否处于思考（Thinking）模式。
+ * 新命名规则（2026-05）：
+ *   - deepseek-v4-pro  → 默认思考模式（对应旧 deepseek-reasoner）
+ *   - deepseek-v4-flash → 支持非思考/思考切换（默认思考）
+ *   - deepseek-chat    → 旧名称，已于 2026/07/24 弃用，等价于 deepseek-v4-flash 非思考模式
+ *   - deepseek-reasoner → 旧名称，已于 2026/07/24 弃用，等价于 deepseek-v4-pro
+ * 思考模式下：不支持 temperature / top_p / presence_penalty / frequency_penalty 参数
+ */
+function isDeepSeekThinkingModel(model?: string): boolean {
+  if (!model) return false;
+  // 明确包含 reasoner / v4-pro 视为思考模型
+  return model.includes("reasoner") || model.includes("v4-pro");
+}
+
 /** 判断模型类型是否支持 OpenAI 兼容 function calling */
 function supportsFunctionCalling(type: string, model?: string): boolean {
-  // deepseek-reasoner 是思考模型，不支持 Function Calling（会忽略 tools 参数并产生兼容性问题）
-  // 其他 deepseek 模型（如 deepseek-chat）支持 FC
-  if (type === "deepseek" && model && model.includes("reasoner")) return false;
+  // DeepSeek 思考模型（deepseek-reasoner / deepseek-v4-pro）不支持 Function Calling
+  // DeepSeek 新文档说明：思考模式下 tools 参数被忽略，会产生兼容性问题
+  if (type === "deepseek" && isDeepSeekThinkingModel(model)) return false;
   return ["deepseek", "openai", "gemini", "qwen"].includes(type);
 }
 
@@ -654,12 +669,36 @@ function buildLLMRequest(cfg: ModelConfig, platformKey: string): {
     ? { tools: TOOL_DEFINITIONS, tool_choice: "auto", parallel_tool_calls: false }
     : {};
   switch (cfg.type) {
-    case "deepseek":
+    case "deepseek": {
+      // 新模型命名（2026-05）：
+      //   deepseek-v4-flash  ← 对应旧 deepseek-chat（支持非思考/思考切换，默认思考）
+      //   deepseek-v4-pro    ← 对应旧 deepseek-reasoner（强思考模型）
+      // 旧名称 deepseek-chat / deepseek-reasoner 仍可用，将于 2026/07/24 弃用
+      const dsModel = cfg.model || "deepseek-v4-flash";
+      const dsIsThinking = isDeepSeekThinkingModel(dsModel);
+      // 思考模式下不支持 temperature / top_p / presence_penalty / frequency_penalty
+      const dsTempExtra = dsIsThinking ? {} : tempExtra;
+      // 思考模式控制参数：
+      //   thinking.type = "enabled" 开启思考（默认），"disabled" 关闭
+      //   reasoning_effort = "high"（默认，适合普通请求） | "max"（复杂 Agent 请求）
+      // deepseek-v4-flash 非 FC 时也注入思考参数（按需开启）；思考模型始终开启
+      const dsThinkingExtra = dsIsThinking
+        ? { thinking: { type: "enabled" }, reasoning_effort: "high" }
+        : {};
       return {
         url: "https://api.deepseek.com/v1/chat/completions",
         headers: { Authorization: `Bearer ${cfg.api_key}` },
-        bodyExtra: { model: cfg.model || "deepseek-chat", stream: true, max_tokens: 8192, ...tempExtra, ...fcExtra },
+        bodyExtra: {
+          model: dsModel,
+          stream: true,
+          // 新 API 支持最大 384K 输出；设 32768 兼顾成本与长任务需求
+          max_tokens: 32768,
+          ...dsTempExtra,
+          ...dsThinkingExtra,
+          ...fcExtra,
+        },
       };
+    }
     case "gemini":
       // Google AI Studio 提供 OpenAI 兼容接口，无需额外适配
       return {
@@ -3937,11 +3976,11 @@ async function callLLM(
   console.log(`[callLLM] type=${cfg.type} model=${cfg.model || "default"} url=${url}`);
 
   // ── DeepSeek reasoning_content 一致性修复 ──────────────────────────────────
-  // DeepSeek API（V3/V4/R1 等）要求：所有 assistant 消息都必须携带 reasoning_content 字段。
+  // DeepSeek API（V4-Flash/V4-Pro 等）要求：所有 assistant 消息都必须携带 reasoning_content 字段。
   // 原因：
   //   1. 前端不保存 reasoning_content，断点恢复或页面刷新后历史消息里缺少该字段
   //   2. 外部代码（reasoningContentEverSeen）只能覆盖同一次请求内的多轮循环，无法跨请求
-  //   3. DeepSeek 多个模型（deepseek-chat/V3、deepseek-v4-pro、deepseek-reasoner/R1）都会输出 reasoning_content
+  //   3. DeepSeek 多个模型（deepseek-v4-flash、deepseek-v4-pro 等）都会输出 reasoning_content
   // 修复策略：所有 deepseek 模型统一启用修复，给所有缺少该字段的 assistant 消息补上""
   const isDeepSeek = cfg.type === "deepseek";
   const missingRC = messages.filter(m => m.role === "assistant" && m.reasoning_content == null).length;

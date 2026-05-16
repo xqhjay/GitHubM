@@ -70,19 +70,20 @@ export const MODEL_DEFS: ModelDef[] = [
   {
     type: 'deepseek',
     label: 'DeepSeek',
-    desc: '代码能力极强，中文理解出色，低价',
+    desc: '代码能力极强，中文理解出色，价格极低',
     badge: '低价',
     models: [
-      { value: 'deepseek-chat', label: 'DeepSeek V3（综合代码 · 推荐）' },
-      { value: 'deepseek-coder', label: 'DeepSeek Coder V2（专用代码模型）' },
-      { value: 'deepseek-reasoner', label: 'DeepSeek R1（深度推理）' },
-      { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（快速 · 轻量）' },
-      { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro（最新 · 含思考模式）' },
+      // 新命名（2026-05，推荐使用）
+      { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（快速 · 低价 · 推荐）' },
+      { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro（深度思考 · 当前 2.5 折）' },
+      // 旧名称兼容（2026/07/24 后弃用）
+      { value: 'deepseek-chat', label: 'DeepSeek Chat（旧名，即将弃用）' },
+      { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner（旧名，即将弃用）' },
     ],
     needKey: true,
     needEndpoint: false,
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
-    docsUrl: 'https://platform.deepseek.com/api-keys',
+    docsUrl: 'https://platform.deepseek.com/api_keys',
     avatarText: 'DS',
     avatarFrom: '#0ea5e9',
     avatarTo: '#0284c7',

@@ -1,9 +1,14 @@
 /**
  * AI 模型官方定价表
- * 单位：USD / 1M tokens
- * 数据来源：各平台官网定价页，最后更新：2025-05
+ * 单位：USD / 1M tokens（人民币按 1 USD = 7.2 CNY 换算）
+ * 数据来源：各平台官网定价页，最后更新：2026-05
  *
- * CNY 定价（通义千问 DashScope）按 1 USD = 7.2 CNY 换算为 USD
+ * DeepSeek 最新定价（人民币，来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/）
+ *   deepseek-v4-flash：输入(缓存未命中) ¥1/M，输出 ¥2/M
+ *   deepseek-v4-pro  ：输入(缓存未命中) ¥3/M（当前折扣），输出 ¥6/M（当前折扣，原价 ¥12/¥24）
+ *   输入缓存命中：全系降至首发价 1/10（v4-flash ¥0.02/M，v4-pro ¥0.025/M）
+ *
+ * 通义千问 CNY 定价按 1 USD = 7.2 CNY 换算为 USD
  * 标注 isEstimated=true 的条目为估算（无精确模型定价时按 provider 兜底价）
  */
 
@@ -26,7 +31,7 @@ export interface ModelPrice {
 
 // ── 定价来源 URL ─────────────────────────────────────────────────────────────
 const SOURCES = {
-  deepseek: 'https://platform.deepseek.com/docs/api/pricing',
+  deepseek: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/',
   gemini:   'https://ai.google.dev/pricing',
   qwen:     'https://help.aliyun.com/zh/model-studio/developer-reference/tongyi-qianwen-7b-14b-72b-api',
   openai:   'https://openai.com/api/pricing',
@@ -37,36 +42,48 @@ const SOURCES = {
 const MODEL_PRICES: Record<string, ModelPrice> = {
 
   // ── DeepSeek ──────────────────────────────────────────────────────────────
-  // https://platform.deepseek.com/docs/api/pricing（2025-05）
-  'deepseek-chat': {
-    inputPer1M: 0.27,
-    outputPer1M: 1.10,
+  // 官方定价：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/（2026-05）
+  // 货币：人民币（CNY），按 1 USD = 7.2 CNY 换算
+  //
+  // deepseek-v4-flash（对应旧 deepseek-chat，2026/07/24 前旧名兼容）
+  //   缓存未命中输入 ¥1/M，输出 ¥2/M；缓存命中输入 ¥0.02/M
+  'deepseek-v4-flash': {
+    inputPer1M: 1.00 / 7.2,          // ¥1.00/M → ~$0.139/M
+    outputPer1M: 2.00 / 7.2,         // ¥2.00/M → ~$0.278/M
+    currency: 'CNY',
     sourceUrl: SOURCES.deepseek,
-    note: '缓存命中输入价格 $0.07/M',
+    note: '缓存命中输入 ¥0.02/M (~$0.003/M)；上下文 1M / 最大输出 384K',
+  },
+  // deepseek-v4-pro（对应旧 deepseek-reasoner，含思考模式，2026/07/24 前旧名兼容）
+  //   当前 2.5 折优惠至 2026/05/31：缓存未命中输入 ¥3/M，输出 ¥6/M；原价 ¥12/¥24
+  'deepseek-v4-pro': {
+    inputPer1M: 3.00 / 7.2,          // ¥3.00/M（折后） → ~$0.417/M
+    outputPer1M: 6.00 / 7.2,         // ¥6.00/M（折后） → ~$0.833/M
+    currency: 'CNY',
+    sourceUrl: SOURCES.deepseek,
+    note: '当前 2.5 折至 2026/05/31（原价 ¥12/¥24/M）；缓存命中输入 ¥0.025/M；思考模式含 reasoning_content',
+  },
+  // 旧名称兼容（2026/07/24 后弃用，内部分别映射到 v4-flash 非思考 / v4-pro）
+  'deepseek-chat': {
+    inputPer1M: 1.00 / 7.2,
+    outputPer1M: 2.00 / 7.2,
+    currency: 'CNY',
+    sourceUrl: SOURCES.deepseek,
+    note: '已弃用旧名称（等价于 deepseek-v4-flash），建议升级',
   },
   'deepseek-coder': {
-    inputPer1M: 0.27,
-    outputPer1M: 1.10,
+    inputPer1M: 1.00 / 7.2,
+    outputPer1M: 2.00 / 7.2,
+    currency: 'CNY',
     sourceUrl: SOURCES.deepseek,
-    note: '与 deepseek-chat 同价',
+    note: '按 deepseek-v4-flash 价格估算',
   },
   'deepseek-reasoner': {
-    inputPer1M: 0.55,
-    outputPer1M: 2.19,
+    inputPer1M: 3.00 / 7.2,
+    outputPer1M: 6.00 / 7.2,
+    currency: 'CNY',
     sourceUrl: SOURCES.deepseek,
-    note: 'R1 推理模型，含 Chain-of-Thought 输出',
-  },
-  'deepseek-v4-pro': {
-    inputPer1M: 0.55,
-    outputPer1M: 2.19,
-    sourceUrl: SOURCES.deepseek,
-    note: 'V4 Pro 含思考模式（reasoning_content），价格参考 R1',
-  },
-  'deepseek-v4-flash': {
-    inputPer1M: 0.27,
-    outputPer1M: 1.10,
-    sourceUrl: SOURCES.deepseek,
-    note: 'V4 Flash 轻量快速版，价格参考 V3',
+    note: '已弃用旧名称（等价于 deepseek-v4-pro），建议升级',
   },
 
   // ── Google Gemini ─────────────────────────────────────────────────────────
@@ -203,11 +220,12 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
 // ── Provider 级兜底价（模型 ID 未命中时使用） ──────────────────────────────
 const PROVIDER_FALLBACK: Record<string, ModelPrice> = {
   deepseek: {
-    inputPer1M: 0.27,
-    outputPer1M: 1.10,
+    inputPer1M: 1.00 / 7.2,
+    outputPer1M: 2.00 / 7.2,
     isEstimated: true,
+    currency: 'CNY',
     sourceUrl: SOURCES.deepseek,
-    note: '未知模型，按 deepseek-chat 估算',
+    note: '未知模型，按 deepseek-v4-flash 估算',
   },
   gemini: {
     inputPer1M: 0.10,
