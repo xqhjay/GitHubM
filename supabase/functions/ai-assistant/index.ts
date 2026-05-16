@@ -490,7 +490,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function", function: {
       name: "get_job_logs",
-      description: "下载 Job 完整日志（含详细报错信息）",
+      description: "下载 Job 完整日志；日志超限时自动提取错误块（ERROR/FAILED/Exception 上下文各 35 行）+ 末尾 Build Summary，确保关键报错不被截断",
       parameters: { type: "object", properties: {
         job_id: { type: "string", description: "Job ID（check_run_status 失败时自动附带）" },
       }, required: ["job_id"] },
@@ -1855,7 +1855,7 @@ async function getRunJobs(ctx: GithubContext, runId: string): Promise<string> {
   } catch (e) { return diagnose4xx(e, "get_run_jobs"); }
 }
 
-/** 下载并返回某个 Job 的日志（纯文本，截取最后 12000 字符） */
+/** 下载并返回某个 Job 的日志，智能提取错误块 + 末尾摘要，避免截断关键信息 */
 async function getJobLogs(ctx: GithubContext, jobId: string): Promise<string> {
   try {
     // GitHub 返回 302 重定向到实际日志 URL，需要手动跟随
@@ -1881,11 +1881,67 @@ async function getJobLogs(ctx: GithubContext, jobId: string): Promise<string> {
       return `获取日志失败：HTTP ${redirectResp.status}`;
     }
 
-    // 日志可能很长，只保留最后 12000 字符（最关键的报错信息在末尾）
-    const truncated = logText.length > 12000
-      ? `...[前 ${logText.length - 12000} 字符已省略]\n\n${logText.slice(-12000)}`
-      : logText;
-    return `Job \`${jobId}\` 日志（共 ${logText.length} 字符）：\n\`\`\`\n${truncated}\n\`\`\``;
+    const totalLen = logText.length;
+    const TOTAL_LIMIT = 60_000;   // 最大返回字符数
+    const TAIL_CHARS  = 20_000;   // 末尾保留字符（含 build summary）
+    const CTX_LINES   = 35;       // 错误块前后各保留行数
+
+    // ── 日志未超限：完整返回 ────────────────────────────────────────────────
+    if (totalLen <= TOTAL_LIMIT) {
+      return `Job \`${jobId}\` 日志（共 ${totalLen} 字符，完整输出）：\n\`\`\`\n${logText}\n\`\`\``;
+    }
+
+    // ── 日志超限：智能提取 ───────────────────────────────────────────────────
+    const lines = logText.split("\n");
+    const totalLines = lines.length;
+
+    // 1. 找出所有含错误关键词的行索引
+    const errorPattern = /\b(error|Error|ERROR|FAILED|failed|FAILURE|Exception|exception|fatal|Fatal|FATAL|cannot|Cannot|undefined reference|unresolved)\b/;
+    const errorLineIndices: Set<number> = new Set();
+    for (let i = 0; i < totalLines; i++) {
+      if (errorPattern.test(lines[i])) {
+        // 取上下文窗口
+        const from = Math.max(0, i - CTX_LINES);
+        const to   = Math.min(totalLines - 1, i + CTX_LINES);
+        for (let j = from; j <= to; j++) errorLineIndices.add(j);
+      }
+    }
+
+    // 2. 将连续索引合并为区间，并转为文本块
+    const sortedIndices = Array.from(errorLineIndices).sort((a, b) => a - b);
+    const errorSections: string[] = [];
+    let charCount = 0;
+    let i = 0;
+    while (i < sortedIndices.length && charCount < TOTAL_LIMIT - TAIL_CHARS) {
+      const start = sortedIndices[i];
+      let end = start;
+      while (i + 1 < sortedIndices.length && sortedIndices[i + 1] === sortedIndices[i] + 1) {
+        i++;
+        end = sortedIndices[i];
+      }
+      const sectionText = lines.slice(start, end + 1).join("\n");
+      const label = `\n--- [行 ${start + 1}–${end + 1}] ---\n`;
+      errorSections.push(label + sectionText);
+      charCount += label.length + sectionText.length;
+      i++;
+    }
+
+    // 3. 末尾部分（build summary 通常在此）
+    const tail = logText.slice(-TAIL_CHARS);
+
+    // 4. 拼装输出
+    const header = `Job \`${jobId}\` 日志（共 ${totalLen} 字符 / ${totalLines} 行，已超限智能提取）：\n`;
+    let output = header;
+
+    if (errorSections.length > 0) {
+      output += `\n## ⚠️ 错误相关段落（共 ${errorLineIndices.size} 行上下文）\n\`\`\`\n${errorSections.join("\n")}\n\`\`\`\n`;
+    } else {
+      output += `\n（未检测到明确错误关键词，仅返回末尾内容）\n`;
+    }
+
+    output += `\n## 📋 末尾 ${TAIL_CHARS} 字符（Build Summary）\n\`\`\`\n${tail}\n\`\`\``;
+
+    return output;
   } catch (e) { return diagnose4xx(e, "get_job_logs"); }
 }
 
