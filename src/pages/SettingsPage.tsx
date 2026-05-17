@@ -326,8 +326,9 @@ export default function SettingsPage() {
       const result = await fetchVisitStats(7);
       setVisitDays(result.trend);
       setVisitSummary(result.summary);
-    } catch {
-      setVisitError('获取访问统计失败，请重试');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '获取访问统计失败，请重试';
+      setVisitError(msg);
     } finally {
       setVisitLoading(false);
     }
