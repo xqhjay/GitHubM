@@ -115,12 +115,13 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function", function: {
       name: "grep_in_file",
-      description: "在单个文件内搜索关键词（支持大文件全文搜索），返回匹配行及上下文",
+      description: "在单个文件内搜索关键词（支持大文件全文搜索）。context_lines > 0 时返回匹配行前后 N 行上下文（用于理解代码背景），适合修改前精准定位行号",
       parameters: { type: "object", properties: {
         path: { type: "string", description: "文件路径" },
         pattern: { type: "string", description: "搜索关键词或正则表达式" },
         case_sensitive: { type: "string", description: "是否大小写敏感，\"true\" 或 \"false\"，默认 \"false\"" },
-        offset: { type: "string", description: "翻页偏移量，第一页传 \"0\"" },
+        context_lines: { type: "string", description: "匹配行前后各展示 N 行上下文（默认 \"0\" 仅精确行，建议 \"3\"–\"5\"）" },
+        offset: { type: "string", description: "翻页偏移量，第一页传 \"0\"，超出时系统提示下一页偏移值" },
       }, required: ["path", "pattern"] },
     },
   },
@@ -637,6 +638,28 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       }, required: ["filename", "description"] },
     },
   },
+  // ── 大文件高效操作工具（代码骨架 + 函数级读取）──────────────────────────────
+  {
+    type: "function", function: {
+      name: "get_code_outline",
+      description: "提取文件的代码骨架（函数/类/接口/类型列表 + 起止行号），不返回函数体。大文件操作必备第一步：先调用此工具建立全局结构认知，再用 read_function 或 read_file 精准读取目标函数，彻底避免逐段盲读整个文件。支持 TypeScript/JavaScript/Python/Go/Rust/Java/Kotlin。",
+      parameters: { type: "object", properties: {
+        path: { type: "string", description: "文件路径，如 \"src/App.tsx\"" },
+      }, required: ["path"] },
+    },
+  },
+  {
+    type: "function", function: {
+      name: "read_function",
+      description: "按函数/类/接口名称读取其完整体（含闭合括号），免去「先 grep 行号 → 再 read_file」两步。大文件修改必备：先 get_code_outline 找到目标符号名，再调用此工具一次拿到完整函数体。同名符号有多个时用 occurrence 指定第几个。",
+      parameters: { type: "object", properties: {
+        path: { type: "string", description: "文件路径" },
+        function_name: { type: "string", description: "精确的函数/类/接口名称（区分大小写）" },
+        occurrence: { type: "string", description: "同名符号有多个时取第几个（\"1\"=第一个，默认 \"1\"）" },
+        ref: { type: "string", description: "git ref（分支名/tag/commit SHA），不填则读当前分支最新内容" },
+      }, required: ["path", "function_name"] },
+    },
+  },
   // ── 工具自我改进 ──────────────────────────────────────────────────────────
   {
     type: "function", function: {
@@ -1088,6 +1111,7 @@ async function grepInFile(
   pattern: string,
   caseSensitive = false,
   offset = 0,
+  contextLines = 0,
 ): Promise<string> {
   try {
     const result = await fetchFileContent(ctx, filePath);
@@ -1100,38 +1124,337 @@ async function grepInFile(
     try {
       regex = new RegExp(pattern, caseSensitive ? "g" : "gi");
     } catch {
-      // 用户输入非法正则时退回字面量匹配
       regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), caseSensitive ? "g" : "gi");
     }
 
-    const allMatches: string[] = [];
+    // 找到所有匹配的行索引
+    const matchIndices: number[] = [];
     lines.forEach((line, i) => {
-      if (regex.test(line)) {
-        allMatches.push(`${String(i + 1).padStart(6, " ")} | ${line}`);
-      }
+      if (regex.test(line)) matchIndices.push(i);
       regex.lastIndex = 0;
     });
 
-    if (!allMatches.length) {
+    if (!matchIndices.length) {
       return `"${filePath}" 中未找到匹配 "${pattern}" 的行（共搜索 ${totalLines} 行）`;
     }
 
-    const PAGE = 100;
-    const safeOffset = Math.max(0, Math.min(offset, allMatches.length - 1));
-    const page = allMatches.slice(safeOffset, safeOffset + PAGE);
-    const remaining = allMatches.length - safeOffset - page.length;
+    // contextLines = 0：返回精确匹配行（原有行为）
+    if (contextLines <= 0) {
+      const allMatches = matchIndices.map(i =>
+        `${String(i + 1).padStart(6, " ")} | ${lines[i]}`
+      );
+      const PAGE = 100;
+      const safeOffset = Math.max(0, Math.min(offset, allMatches.length - 1));
+      const page = allMatches.slice(safeOffset, safeOffset + PAGE);
+      const remaining = allMatches.length - safeOffset - page.length;
+      const header = `"${filePath}" 匹配 "${pattern}" 共 ${allMatches.length} 处` +
+        (safeOffset > 0 ? `，显示第 ${safeOffset + 1}–${safeOffset + page.length} 条` : `，显示第 1–${page.length} 条`) +
+        `（文件共 ${totalLines} 行）：`;
+      const truncHint = remaining > 0
+        ? `\n\n⚠️ 还有 ${remaining} 条未显示。继续查看请调用：` +
+          `{"tool":"grep_in_file","path":"${filePath}","pattern":"${pattern}","offset":"${safeOffset + PAGE}"}`
+        : "";
+      return `${header}\n\`\`\`\n${page.join("\n")}\n\`\`\`` + truncHint;
+    }
 
-    const header = `"${filePath}" 匹配 "${pattern}" 共 ${allMatches.length} 处` +
-      (safeOffset > 0 ? `，显示第 ${safeOffset + 1}–${safeOffset + page.length} 条` : `，显示第 1–${page.length} 条`) +
+    // contextLines > 0：将相邻匹配合并为上下文块，减少重复行
+    const ctx_ = Math.max(0, Math.min(contextLines, 20));
+    // 合并重叠区间：[(from, to), ...]
+    const ranges: Array<[number, number]> = [];
+    for (const idx of matchIndices) {
+      const from = Math.max(0, idx - ctx_);
+      const to   = Math.min(lines.length - 1, idx + ctx_);
+      if (ranges.length && from <= ranges[ranges.length - 1][1] + 1) {
+        ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], to);
+      } else {
+        ranges.push([from, to]);
+      }
+    }
+
+    const PAGE_BLOCKS = 30; // 每页最多 30 个上下文块
+    const safeOffset  = Math.max(0, Math.min(offset, ranges.length - 1));
+    const pageRanges  = ranges.slice(safeOffset, safeOffset + PAGE_BLOCKS);
+    const remaining   = ranges.length - safeOffset - pageRanges.length;
+
+    const blocks = pageRanges.map(([from, to]) => {
+      const blockLines = lines.slice(from, to + 1).map((line, k) => {
+        const lineNo = from + k + 1;
+        // 高亮匹配行（用 > 标记）
+        const isMatch = matchIndices.includes(from + k);
+        return `${isMatch ? ">" : " "} ${String(lineNo).padStart(6, " ")} | ${line}`;
+      });
+      return blockLines.join("\n");
+    });
+
+    const header = `"${filePath}" 匹配 "${pattern}" 共 ${matchIndices.length} 处` +
+      `，展示为 ${ranges.length} 个上下文块（各含前后 ${ctx_} 行）` +
+      (safeOffset > 0 ? `，当前第 ${safeOffset + 1}–${safeOffset + pageRanges.length} 块` : `，第 1–${pageRanges.length} 块`) +
       `（文件共 ${totalLines} 行）：`;
 
     const truncHint = remaining > 0
-      ? `\n\n⚠️ 还有 ${remaining} 条未显示。继续查看请调用：` +
-        `{"tool":"grep_in_file","path":"${filePath}","pattern":"${pattern}","offset":"${safeOffset + PAGE}"}`
+      ? `\n\n⚠️ 还有 ${remaining} 个块未显示。继续查看请调用：` +
+        `{"tool":"grep_in_file","path":"${filePath}","pattern":"${pattern}","context_lines":"${ctx_}","offset":"${safeOffset + PAGE_BLOCKS}"}`
       : "";
 
-    return `${header}\n\`\`\`\n${page.join("\n")}\n\`\`\`` + truncHint;
+    return `${header}\n\`\`\`\n${blocks.join("\n── ──\n")}\n\`\`\`` + truncHint;
   } catch (e) { return diagnose4xx(e, "grep_in_file"); }
+}
+
+// ── 代码骨架符号提取（语言无关正则策略）────────────────────────────────────────
+interface OutlineEntry {
+  kind: string;   // function / class / interface / type / const / enum / method
+  name: string;
+  startLine: number;
+  endLine: number;
+  isExported: boolean;
+}
+
+/**
+ * 解析文件源码，提取顶层（及类级）符号骨架。
+ * 支持 TypeScript / JavaScript / Python / Go / Java / Kotlin / Rust（正则策略）。
+ * 不依赖外部 AST 库，用括号计数法确定函数/类的结束行。
+ */
+function parseCodeOutline(source: string, ext: string): OutlineEntry[] {
+  const lines = source.split("\n");
+  const entries: OutlineEntry[] = [];
+
+  if (ext === ".py") {
+    // Python：缩进+冒号法
+    const defRe = /^(class|def|async def)\s+(\w+)/;
+    for (let i = 0; i < lines.length; i++) {
+      const m = defRe.exec(lines[i]);
+      if (!m) continue;
+      const indent = lines[i].search(/\S/);
+      const kind = m[1] === "class" ? "class" : "function";
+      const name = m[2];
+      // 找结束行：下一个同级或更小缩进的非空行（含 class/def）
+      let end = i;
+      for (let j = i + 1; j < lines.length; j++) {
+        const trimmed = lines[j].trim();
+        if (!trimmed) { end = j; continue; }
+        const jIndent = lines[j].search(/\S/);
+        if (jIndent <= indent && trimmed) { end = j - 1; break; }
+        end = j;
+        if (j === lines.length - 1) end = j;
+      }
+      entries.push({ kind, name, startLine: i + 1, endLine: end + 1, isExported: false });
+    }
+    return entries;
+  }
+
+  // C 风格语言（TS/JS/Go/Java/Kotlin/Rust 等）：括号计数法
+  const isTSJS  = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext);
+  const isGo    = ext === ".go";
+  const isRust  = ext === ".rs";
+
+  // 逐行扫描声明头，记录 startLine；然后从该行开始扫描括号，确定 endLine
+  const declRe: RegExp[] = [];
+
+  if (isTSJS) {
+    declRe.push(
+      // export default function / export async function / function
+      /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)/,
+      // export class / class
+      /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/,
+      // export interface
+      /^(?:export\s+)?interface\s+(\w+)/,
+      // export type X = { / export type X<...> = {
+      /^(?:export\s+)?type\s+(\w+)(?:<[^>]*>)?\s*=/,
+      // export enum
+      /^(?:export\s+)?(?:const\s+)?enum\s+(\w+)/,
+      // export const name = (...) => {  /  export const name = function(
+      /^(?:export\s+)?const\s+(\w+)\s*(?::\s*\S+\s*)?=\s*(?:async\s+)?(?:function|\([^)]*\)\s*(?::\s*\S+\s*)?=>)/,
+    );
+  } else if (isGo) {
+    declRe.push(
+      /^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(/,  // func (receiver) Name(
+      /^type\s+(\w+)\s+(?:struct|interface)/,
+    );
+  } else if (isRust) {
+    declRe.push(
+      /^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/,
+      /^(?:pub\s+)?struct\s+(\w+)/,
+      /^(?:pub\s+)?(?:trait|impl)\s+(\w+)/,
+      /^(?:pub\s+)?enum\s+(\w+)/,
+    );
+  } else {
+    // Java / Kotlin / C# 等：通用函数/类声明
+    declRe.push(
+      /^(?:public|private|protected|internal|static|final|abstract|override|suspend|\s)*(?:class|interface|enum)\s+(\w+)/,
+      /^(?:public|private|protected|internal|static|final|abstract|override|suspend|\s)*(?:\w+(?:<[^>]*>)?)\s+(\w+)\s*\(/,
+    );
+  }
+
+  // 括号深度追踪：从起始行找到对应的闭合括号行
+  function findEndLine(startIdx: number): number {
+    let depth = 0;
+    let opened = false;
+    for (let j = startIdx; j < lines.length; j++) {
+      for (const ch of lines[j]) {
+        if (ch === "{") { depth++; opened = true; }
+        else if (ch === "}") { depth--; }
+      }
+      if (opened && depth <= 0) return j + 1; // 1-based
+      // 安全上限：单个符号最多 2000 行
+      if (j - startIdx > 2000) return Math.min(startIdx + 2000, lines.length);
+    }
+    return lines.length;
+  }
+
+  // 确定 kind 字符串
+  function getKind(line: string, ext2: string): string {
+    if ([".ts", ".tsx", ".js", ".jsx"].includes(ext2)) {
+      if (/\bclass\b/.test(line))     return "class";
+      if (/\binterface\b/.test(line)) return "interface";
+      if (/\btype\b/.test(line))      return "type";
+      if (/\benum\b/.test(line))      return "enum";
+      return "function";
+    }
+    if (ext2 === ".go") return /\btype\b/.test(line) ? "type" : "function";
+    if (ext2 === ".rs") {
+      if (/\bstruct\b/.test(line))   return "struct";
+      if (/\btrait\b/.test(line))    return "trait";
+      if (/\bimpl\b/.test(line))     return "impl";
+      if (/\benum\b/.test(line))     return "enum";
+      return "function";
+    }
+    if (/\bclass\b/.test(line) || /\binterface\b/.test(line)) return "class";
+    return "function";
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // 跳过注释行、空行
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+    // 只匹配顶层或一级缩进（类内方法）
+    const indent = line.search(/\S/);
+    if (indent > 4) continue;
+
+    for (const re of declRe) {
+      const m = re.exec(line);
+      if (!m) continue;
+      const name = m[1];
+      if (!name || name.length < 2) continue;
+      const isExported = /^export\b/.test(trimmed) || /^pub\b/.test(trimmed) ||
+                         /^public\b/.test(trimmed);
+      const kind = getKind(line, ext);
+      const endLine = findEndLine(i);
+      entries.push({ kind, name, startLine: i + 1, endLine, isExported });
+      break; // 一行只匹配一个声明
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * get_code_outline 工具：读取文件并提取代码骨架（函数/类/接口/类型列表）。
+ * 不返回函数体，只返回符号名 + 起止行号。让 AI 建立文件全局认知后，
+ * 再用 read_function 或 read_file 精准读取目标函数。
+ */
+async function getCodeOutline(ctx: GithubContext, filePath: string): Promise<string> {
+  try {
+    const result = await fetchFileContent(ctx, filePath);
+    if (typeof result === "string") return result;
+
+    const { content, totalLines, size } = result;
+    const ext = ("." + filePath.split(".").pop()).toLowerCase();
+    const entries = parseCodeOutline(content, ext);
+
+    if (!entries.length) {
+      return `"${filePath}" 中未能识别出代码符号（共 ${totalLines} 行）。\n` +
+        `可能原因：文件格式不受支持、全是注释/数据，或者是配置文件。\n` +
+        `支持语言：TypeScript/JavaScript/Python/Go/Rust/Java/Kotlin。`;
+    }
+
+    const sizeKB = Math.round(size / 1024);
+    const sizeNote = sizeKB > 0 ? ` | ${sizeKB}KB` : "";
+
+    const lines = entries.map(e => {
+      const exported = e.isExported ? "↑" : " ";
+      const span = e.endLine > e.startLine
+        ? `L${e.startLine}–${e.endLine}（${e.endLine - e.startLine + 1}行）`
+        : `L${e.startLine}`;
+      return `${exported} ${span.padEnd(22)} ${e.kind.padEnd(10)} ${e.name}`;
+    });
+
+    const legend = `（↑=导出  列格式：行范围  符号类型  符号名）`;
+    const hint = `\n💡 读取完整函数体：{"tool":"read_function","path":"${filePath}","function_name":"<函数名>"}\n   或精确读取行范围：{"tool":"read_file","path":"${filePath}","start_line":"N","end_line":"M"}`;
+
+    return `文件 "${filePath}" 代码骨架（共 ${entries.length} 个符号 | ${totalLines} 行${sizeNote}）${legend}：\n\`\`\`\n${lines.join("\n")}\n\`\`\`` + hint;
+  } catch (e) { return diagnose4xx(e, "get_code_outline"); }
+}
+
+/**
+ * read_function 工具：按函数/类/符号名读取完整体，免去"先 grep 行号 → 再 read_file"两步。
+ * 支持重名符号选择（第几个匹配），以及从指定 ref 读取。
+ *
+ * @param functionName 精确的函数/类/接口/方法名（区分大小写）
+ * @param occurrence   若同名符号有多个，取第几个（1-based，默认 1）
+ * @param ref          git ref（分支名/tag/commit SHA），不填则读默认分支当前内容
+ */
+async function readFunction(
+  ctx: GithubContext,
+  filePath: string,
+  functionName: string,
+  occurrence = 1,
+  ref?: string,
+): Promise<string> {
+  try {
+    const result = await fetchFileContent(ctx, filePath, ref);
+    if (typeof result === "string") return result;
+
+    const { content, totalLines, size } = result;
+    const ext = ("." + filePath.split(".").pop()).toLowerCase();
+    const entries = parseCodeOutline(content, ext);
+
+    // 精确名称匹配
+    const matched = entries.filter(e => e.name === functionName);
+
+    if (!matched.length) {
+      // 降级：模糊匹配（忽略大小写），给出候选列表
+      const fuzzy = entries.filter(e => e.name.toLowerCase() === functionName.toLowerCase());
+      if (fuzzy.length) {
+        const suggestions = fuzzy.map(e => `  • L${e.startLine}  ${e.kind}  ${e.name}`).join("\n");
+        return `"${filePath}" 中未找到名为 "${functionName}" 的符号（大小写不匹配）。\n` +
+          `相近名称：\n${suggestions}\n` +
+          `请用精确名称重新调用 read_function，或用 get_code_outline 查看全部符号。`;
+      }
+      // 给出全量骨架帮助 AI 找到正确名称
+      const outline = entries.slice(0, 30).map(e => `  • L${e.startLine}  ${e.kind}  ${e.name}`).join("\n");
+      const moreHint = entries.length > 30 ? `\n  … 还有 ${entries.length - 30} 个符号，请用 get_code_outline 查看完整列表` : "";
+      return `"${filePath}" 中未找到名为 "${functionName}" 的符号。\n` +
+        `文件共 ${entries.length} 个符号，前 30 个：\n${outline}${moreHint}\n` +
+        `提示：使用 get_code_outline 获取完整骨架，或 grep_in_file 搜索关键词定位行号。`;
+    }
+
+    // occurrence 超出范围时返回所有匹配概览
+    const occ = Math.max(1, Math.min(occurrence, matched.length));
+    if (occ < occurrence) {
+      const overview = matched.map((e, i) => `  ${i + 1}. L${e.startLine}–${e.endLine}（${e.endLine - e.startLine + 1}行）`).join("\n");
+      return `"${filePath}" 中共找到 ${matched.length} 个名为 "${functionName}" 的符号（你请求第 ${occurrence} 个，但只有 ${matched.length} 个）：\n${overview}`;
+    }
+
+    const entry = matched[occ - 1];
+    const lines = content.split("\n");
+    const body   = lines.slice(entry.startLine - 1, entry.endLine);
+    const numbered = body.map((l, i) =>
+      `${String(entry.startLine + i).padStart(6, " ")} | ${l}`
+    ).join("\n");
+
+    const sizeKB = Math.round(size / 1024);
+    const sizeNote = sizeKB > 50 ? ` | 文件 ${sizeKB}KB` : "";
+    const multiHint = matched.length > 1
+      ? `\n💡 此文件共有 ${matched.length} 个同名符号，当前显示第 ${occ} 个。` +
+        `读取其他：{"tool":"read_function","path":"${filePath}","function_name":"${functionName}","occurrence":"${occ < matched.length ? occ + 1 : 1}"}`
+      : "";
+
+    return `${entry.kind} \`${entry.name}\` — "${filePath}" L${entry.startLine}–${entry.endLine}（${body.length} 行${sizeNote}）：\n` +
+      `\`\`\`\n${numbered}\n\`\`\`\n` +
+      `_SHA 快照：文件共 ${totalLines} 行${sizeNote}_` +
+      multiHint;
+  } catch (e) { return diagnose4xx(e, "read_function"); }
 }
 
 /**
@@ -3549,6 +3872,7 @@ ${branchNote}
 
 ## 新功能/重构请求必须走的四阶段流程
 **阶段 1**：先用工具探索项目（file_tree → batch_read 关键文件 → grep_in_repo 定位相关代码）
+- 大文件（>500行）改造：优先 get_code_outline 建立骨架 → read_function 精准读取目标函数
 **阶段 2**：输出方案（格式见下方），等用户确认
 **阶段 3**：用户确认后，输出 PLAN 并开始执行
 **阶段 4**：完成后输出 TASK_DONE
@@ -3589,6 +3913,7 @@ ${branchNote}
 ## 开发需求分析工作流（新功能/重构必须遵循）
 触发条件：用户说"想新增"、"帮我实现"、"重构"等涉及新功能或较大改动时：
 1. file_tree → batch_read 关键配置 → grep_in_repo 定位相关代码（探索阶段）
+   - 目标文件 > 500 行时：优先 get_code_outline 建立骨架 → read_function 精准读取目标函数
 2. 输出方案选项等用户确认（唯一的暂停点）
 3. 用户确认后立即输出 PLAN 并执行（不要再次询问）
 
@@ -4046,31 +4371,50 @@ ${branchNote}
 大文件完整读取策略
 ==============================
 
+**🆕 大文件高效操作（推荐工作流）**：
+
+> 核心原则：**先建立全局认知，再精准读取目标，不要逐段盲读整个文件**
+
+**新工具（优先使用）**：
+- `get_code_outline` — 提取代码骨架（函数/类/接口列表 + 起止行号），不返回代码体，极低上下文消耗
+- `read_function` — 按函数/类名称直接读取完整体，免去两步操作（grep行号 → read_file）
+- `grep_in_file` with `context_lines` — 搜索时同时返回前后 N 行上下文，一步拿到足够背景
+
+**推荐工作流（文件 > 500 行时强烈建议）**：
+```
+步骤1：get_code_outline  →  建立文件全局结构（函数列表+行号）
+步骤2：read_function     →  精准读取目标函数完整体（直接按名称）
+步骤3：patch_file / batch_patch  →  按已知行号修改
+```
+
+**示例**：
+- 查看文件结构：`{"tool":"get_code_outline","path":"src/services/github.ts"}`
+- 精准读取函数：`{"tool":"read_function","path":"src/App.tsx","function_name":"AppContent"}`
+- 同名函数取第2个：`{"tool":"read_function","path":"src/utils.ts","function_name":"format","occurrence":"2"}`
+- 搜索+上下文：`{"tool":"grep_in_file","path":"src/main.ts","pattern":"fetchData","context_lines":"5"}`
+
+**何时仍用 read_file 逐段读取**：
+- 需要理解函数之间的流程串联（多个函数如何协作）
+- 文件结构不规则（如大量内联匿名函数）无法被 outline 覆盖
+- 文件 ≤ 5000 行且需要全量代码上下文时，直接 read_file（不带行范围）一次返回完整内容
+
 **read_file 自动全文模式（优先使用）**：
-- 文件 ≤ 5000 行时，直接调用 \`{"tool":"read_file","path":"src/App.tsx"}\`（不带行范围），系统自动一次性返回完整内容
+- 文件 ≤ 5000 行时，直接调用 `{"tool":"read_file","path":"src/App.tsx"}`（不带行范围），系统自动一次性返回完整内容
 - 文件 > 5000 行时，系统返回第一段并附带**所有后续段落的调用列表**，必须逐段执行完毕
 
-**识别大文件**：文件 > 200 行或 > 100KB 时，视为大文件，必须分段读取。
-
 **标准流程（文件 > 5000 行时）**：
-1. 先调用 get_file_info 获取总行数和大小（零内容消耗、快速）
-   {"tool":"get_file_info","path":"src/App.tsx"}
-2. 根据总行数制定分段计划：每段 500 行，计算需要几次 read_file
-3. 逐段调用 read_file（start_line/end_line 按 500 行步进）：
-   第1段：{"tool":"read_file","path":"src/App.tsx","start_line":"1","end_line":"500"}
-   第2段：{"tool":"read_file","path":"src/App.tsx","start_line":"501","end_line":"1000"}
-   …以此类推，直到读完最后一段
-4. 收到 🔴 [必读] 提示时，说明还有未读内容，**必须立即继续读取，不得以任何理由停止或跳过**
+1. 先调用 `get_code_outline` 建立骨架（推荐替代 get_file_info）
+2. 用 `read_function` 精准读取目标函数，无需分段
+3. 确实需要跨函数全文时，再按 500 行步进分段 read_file
 
 **大文件（>1MB）特别说明**：
 - GitHub Contents API 对 >1MB 文件返回空内容，read_file 已自动切换到 Git Blobs API
-- 用户无需感知此切换，直接正常调用 read_file 即可
-- get_file_info 同样会自动处理大文件的行数统计
+- get_code_outline / read_function 同样自动处理大文件，用户无需感知
 
 **关键规则（违反即视为任务失败）**：
 - **收到 🔴 截断提示后，必须立即继续读取下一段，不得中断、不得向用户汇报"已读取部分"**
-- **不得在文件未读完时就开始修改代码**，必须先读完全文再分析
-- 若只需定位特定代码，优先用 grep_in_file 精确定位，避免读取无关内容
+- **不得在文件未读完时就开始修改代码**，必须先读完目标代码再分析
+- 大文件（> 500 行）修改代码前**必须先调用 get_code_outline 或 grep_in_file(context_lines≥3) 确认精确行号**，不得凭猜测行号直接 patch
 - batch_read 适合同时了解多个小文件（如配置文件组合），每文件返回前 300 行，自动支持大文件
 
 ==============================
@@ -4078,9 +4422,9 @@ ${branchNote}
 ==============================
 
 **写入大内容时（代码超过 200 行）必须分批修改，不得一次性 write_file**：
-1. 先用 get_file_info 确认目标文件总行数
+1. 先用 get_code_outline 或 get_file_info 确认目标文件总行数
 2. 将要写入的内容拆分为多段，每段不超过 200 行
-3. **必须使用 batch_patch 一次性提交所有段落**，格式：\`[{"start_line":N1,"end_line":M1,"content":"段落1"},{"start_line":N2,"end_line":M2,"content":"段落2"},...]\`
+3. **必须使用 batch_patch 一次性提交所有段落**，格式：`[{"start_line":N1,"end_line":M1,"content":"段落1"},{"start_line":N2,"end_line":M2,"content":"段落2"},...]`
    - batch_patch 内部按倒序处理各段，不存在行号偏移问题
    - ❌ 严禁分多次调用 patch_file：每次 patch 会改变文件行数，导致后续调用行号偏移，产生重复或错误内容
 4. batch_patch 返回「各处修改 diff 快照」，**必须核查每处快照**：
@@ -4105,6 +4449,8 @@ ${branchNote}
 - **batch_patch 的各 patch 行号均基于原始文件，内部自动处理偏移，无需手动修正**
 - 修改前必须先用 grep_in_file 或 read_file 确认精确的行号
 - **全仓库定位关键词用 grep_in_repo（返回行号）；跨文件批量替换用 search_and_replace（自动完成全流程）；只需文件路径列表用 search_code（更快但无行号）**
+- **大文件（>500行）操作必须先 get_code_outline 建立骨架认知，再 read_function 按名称精准读取函数体，避免逐段盲读浪费上下文**
+- **grep_in_file 加 context_lines 参数（建议值 3–5）可一次拿到匹配行的上下文，替代「grep→read_file」两步流程**
 - **对比两个分支/tag/commit 差异用 compare_commits（含 diff 片段）；查看单个 commit 详情用 get_commit_diff**
 - **代码审查用 auto_review；不要手动逐行分析变更文件，auto_review 会自动读取文件并输出结构化报告**
 - **触发工作流后必须用 check_run_status 等待结果，不要用 get_workflow_runs 手动轮询；build_apk 类型若超时需再调一次；startup_failure 说明工作流文件有语法问题，直接修复**
@@ -4720,8 +5066,19 @@ function executeTool(
     );
     // ── 新工具 ───────────────────────────────────────────────────────────
     case "file_tree":    return fileTree(ctx, p("path"), parseInt(p("depth", "3"), 10));
-    case "grep_in_file": return grepInFile(ctx, p("path"), p("pattern"), p("case_sensitive") === "true", p("offset") ? parseInt(p("offset"), 10) : 0);
+    case "grep_in_file": return grepInFile(
+      ctx, p("path"), p("pattern"),
+      p("case_sensitive") === "true",
+      p("offset") ? parseInt(p("offset"), 10) : 0,
+      p("context_lines") ? parseInt(p("context_lines"), 10) : 0,
+    );
     case "batch_read":   return batchReadFiles(ctx, p("paths"));
+    case "get_code_outline": return getCodeOutline(ctx, p("path"));
+    case "read_function":    return readFunction(
+      ctx, p("path"), p("function_name"),
+      p("occurrence") ? parseInt(p("occurrence"), 10) : 1,
+      p("ref") || undefined,
+    );
     // ── 分支 & PR ────────────────────────────────────────────────────────────
     case "list_branches":     return listBranches(ctx);
     case "list_commits":      return listCommits(ctx, p("path") || undefined, p("branch") || targetBranch);
@@ -5194,6 +5551,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       write_file: "写入文件", delete_file: "删除文件", search_code: "搜索代码",
       file_tree: "文件树", grep_in_file: "文件内搜索", batch_read: "批量读取文件",
       grep_in_repo: "全仓库搜索", batch_patch: "批量局部修改",
+      get_code_outline: "提取代码骨架", read_function: "读取函数体",
       // 分支 & PR
       list_branches: "列出分支", list_commits: "提交历史", create_branch: "新建分支",
       list_pull_requests: "列出 PR", create_pr: "创建 PR", merge_pull_request: "合并 PR",
@@ -5743,7 +6101,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       // ── 将本轮工具调用压入消息历史（保持上下文完整）────────────────────────
       // 工具结果注入截断：文件内容类工具允许 30000 字符（约 600 行代码），其他工具 4000 字符
-      const fileContentTools = ["read_file", "batch_read", "grep_in_file", "get_file_info"];
+      const fileContentTools = ["read_file", "batch_read", "grep_in_file", "get_file_info", "get_code_outline", "read_function"];
       const resultLimit = fileContentTools.includes(String(toolCall.tool)) ? 30000 : 4000;
       const truncatedResult = toolResult.length > resultLimit
         ? toolResult.slice(0, resultLimit) + `\n…（内容已截断，原始长度 ${toolResult.length} 字符，如需完整内容请重新调用工具并缩小查询范围）`
