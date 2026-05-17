@@ -70,23 +70,15 @@ export async function fetchVisitStats(days = 7): Promise<VisitStatsResult> {
     { method: 'GET' }
   );
 
-  if (error || !data) {
-    // 失败时返回空结构，避免页面崩溃
-    const emptyTrend: DailyStats[] = Array.from({ length: days }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - 1 - i));
-      const key = d.toISOString().slice(0, 10);
-      return {
-        date:  key,
-        label: `${parseInt(key.slice(5, 7))}/${parseInt(key.slice(8, 10))}`,
-        pv: 0,
-        uv: 0,
-      };
-    });
-    return {
-      trend:   emptyTrend,
-      summary: { todayPv: 0, todayUv: 0, totalPv: 0, totalUv: 0, allTimePv: 0, allTimeUv: 0, activeDays: 0 },
-    };
+  if (error) {
+    const msg = await error?.context?.text().catch(() => error?.message ?? '未知错误');
+    console.error('[visitStats] fetchVisitStats 失败:', msg);
+    throw new Error(msg ?? '获取访问统计失败');
+  }
+
+  if (!data) {
+    console.error('[visitStats] fetchVisitStats 返回空数据');
+    throw new Error('获取访问统计返回空数据');
   }
 
   return data;
