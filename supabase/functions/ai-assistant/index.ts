@@ -1817,6 +1817,7 @@ async function patchFile(
       }
     }
     // 分支保护（422）：无法直接 push
+    const errMsg = (e as Error).message || "";
     if (errMsg.includes("422") || errMsg.includes("branch protection") || errMsg.includes("protected branch")) {
       return (
         `❌ patch_file 失败（分支保护）：分支 "${ctx.repo}" 启用了保护规则，禁止直接推送。\n` +
@@ -3139,8 +3140,8 @@ async function compareCommits(ctx: GithubContext, base: string, head: string): P
     ].join("\n");
 
     // 最近几条提交
-    const commitLines = commits.slice(0, 10).map(c =>
-      `  \`${c.sha?.slice(0, 7)}\` ${c.commit?.message?.split("\n")[0]}  — ${c.commit?.author?.name ?? ""}`,
+    const commitLines = commits.slice(0, 10).map((c: any) =>
+      `  \`${String(c.sha).slice(0, 7)}\` ${String(c.commit?.message || "").split("\n")[0]}  — ${c.commit?.author?.name ?? ""}`,
     );
     const commitSection = totalCommits > 0
       ? `**提交列表**（共 ${totalCommits} 条，展示前 ${commitLines.length} 条）：\n${commitLines.join("\n")}\n\n`
@@ -3630,7 +3631,7 @@ async function previewDiff(
  * 注意：GitHub API 无直接 revert 接口，采用「创建 revert commit」的等效实现。
  */
 async function undoLastCommit(ctx: GithubContext, branch?: string): Promise<string> {
-  const ref = branch || ctx.defaultBranch || "main";
+  const ref = branch || "main" || "main";
   try {
     // 1. 获取最新两次提交
     const commits = await githubRequest(
@@ -3697,7 +3698,7 @@ async function undoLastCommit(ctx: GithubContext, branch?: string): Promise<stri
  * 如无专用 lint workflow，则尝试触发 CI 并筛选 lint 相关 job 的日志。
  */
 async function runLint(ctx: GithubContext, branch?: string): Promise<string> {
-  const ref = branch || ctx.defaultBranch || "main";
+  const ref = branch || "main" || "main";
   try {
     // 1. 获取所有工作流，优先找 lint/eslint/check 相关的
     const wfList = await githubRequest(
@@ -3739,7 +3740,7 @@ async function runLint(ctx: GithubContext, branch?: string): Promise<string> {
     // 2. 触发专用 lint 工作流
     await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/actions/workflows/${lintWf.id}/dispatches`, {
       method: "POST",
-      body: { ref },
+      body: JSON.stringify({ ref }),
     });
 
     // 3. 等待并轮询结果（最多等 90s）
@@ -4918,7 +4919,7 @@ async function triggerAndMonitorBuild(
   maxFixAttempts = 3,
 ): Promise<string> {
   if (!workflowId) return "❌ 参数缺失：workflow_id 为必填";
-  const targetRef = ref || branch || ctx.defaultBranch || "main";
+  const targetRef = ref || branch || "main" || "main";
 
   const log = (...msgs: string[]) => console.log(`[build-monitor] ${msgs.join(" ")}`);
 
@@ -4926,7 +4927,7 @@ async function triggerAndMonitorBuild(
   try {
     await githubRequest(ctx, `/repos/${ctx.owner}/${ctx.repo}/actions/workflows/${workflowId}/dispatches`, {
       method: "POST",
-      body: { ref: targetRef },
+      body: JSON.stringify({ ref: targetRef }),
     });
     log(`已触发 ${workflowId} @ ${targetRef}`);
   } catch (e) { return diagnose4xx(e, "trigger_and_monitor_build (触发阶段)"); }
@@ -5479,6 +5480,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
 
+  // 优化：单次请求生命周期内的只读工具缓存，避免重复拉取相同文件/API消耗时间和Token
+  const requestCache = new Map<string, string>();
+
   let messages: Message[], githubToken: string, owner: string, repo: string;
   let modelConfig: ModelConfig = { type: "wenxin" };
   let targetBranch: string | undefined;
@@ -5867,7 +5871,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const beforeText = braceIdx > 0 ? assistantText.slice(0, braceIdx).trim() : "";
       if (beforeText) await sendChunk(beforeText + "\n\n");
 
-      const label = TOOL_LABELS[toolCall.tool] || toolCall.tool;
+      const label = TOOL_LABELS[String(toolCall.tool)] || toolCall.tool;
       const hint = toolCall.tool === "read_file" && (toolCall.start_line || toolCall.end_line)
         ? `${toolCall.path} 第${toolCall.start_line || "1"}–${toolCall.end_line || "末尾"}行`
         : toolCall.tool === "patch_file"
@@ -6021,10 +6025,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       const startTime = Date.now();
       let toolResult = "";
+      let isCached = false;
+      const readOnlyTools = new Set([
+        "list_files", "read_file", "get_file_info", "search_code",
+        "grep_in_repo", "file_tree", "grep_in_file", "batch_read",
+        "get_code_outline", "read_function", "list_branches", "list_commits",
+        "list_pull_requests", "get_pr_files", "list_issues", "search_issues",
+        "get_issue_details", "get_repo_info", "get_commit_diff", "compare_commits",
+        "list_workflows", "get_workflow_runs", "check_run_status",
+        "get_run_jobs", "get_job_logs", "list_actions_secrets",
+        "list_actions_variables", "get_run_artifacts", "list_releases",
+        "get_latest_release", "get_merged_prs_since", "request_file"
+      ]);
+      const toolName = String(toolCall.tool);
+      const cacheKey = `${toolName}:${JSON.stringify(toolCall)}`;
+
       try { 
         // 工具执行前先发一次心跳，执行过程中 GitHub API 也可能耗时数秒
         await heartbeat();
-        toolResult = await executeTool(ctx, toolCall, targetBranch);
+        
+        if (readOnlyTools.has(toolName) && requestCache.has(cacheKey)) {
+          toolResult = requestCache.get(cacheKey)!;
+          isCached = true;
+          console.log(`[Cache Hit] ${toolName} -> ${cacheKey}`);
+        } else {
+          toolResult = await executeTool(ctx, toolCall, targetBranch);
+          if (readOnlyTools.has(toolName)) {
+            requestCache.set(cacheKey, toolResult);
+          }
+        }
       }
       catch (e) { toolResult = `工具执行出错：${(e as Error).message}`; }
       
@@ -6140,9 +6169,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       // 工具结果注入截断：文件内容类工具允许 30000 字符（约 600 行代码），其他工具 4000 字符
       const fileContentTools = ["read_file", "batch_read", "grep_in_file", "get_file_info", "get_code_outline", "read_function"];
       const resultLimit = fileContentTools.includes(String(toolCall.tool)) ? 30000 : 4000;
-      const truncatedResult = toolResult.length > resultLimit
+      const truncatedRaw = toolResult.length > resultLimit
         ? toolResult.slice(0, resultLimit) + `\n…（内容已截断，原始长度 ${toolResult.length} 字符，如需完整内容请重新调用工具并缩小查询范围）`
         : toolResult;
+        
+      // 优化：统一工具返回协议（规范化结构输出，提高 LLM 多步推理稳定性）
+      const normalizedResult = JSON.stringify({
+        status: toolStatus,
+        cost: { latency_ms: elapsedMs, cached: isCached },
+        data: truncatedRaw
+      });
+      const truncatedResult = normalizedResult;
       if (fcToolCall) {
         // FC 模式：标准 OpenAI function calling 消息格式
         // assistant → tool（不是 user），保证模型的消息历史格式完全兼容
