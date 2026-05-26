@@ -364,3 +364,37 @@ html.theme-transitioning *::after {
     stroke 0.3s ease,
     box-shadow 0.3s ease !important;
 }
+/* 针对 Monaco Editor 的移动端样式适配 */
+@media (max-width: 768px) {
+  /* 增大原生的搜索框 */
+  .monaco-editor .find-widget {
+    width: 90% !important;
+    max-width: 320px !important;
+    right: 5% !important;
+    top: 10px !important;
+    transform: none !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+    padding: 8px !important;
+  }
+  
+  /* 增大输入框和按钮 */
+  .monaco-editor .find-widget .monaco-inputbox {
+    min-height: 28px !important;
+    font-size: 14px !important;
+  }
+  
+  .monaco-editor .find-widget .button {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  
+  /* 增大上下文菜单，适配手指点击 */
+  .monaco-menu .monaco-action-bar.vertical .action-item {
+    padding: 8px 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  .monaco-menu .monaco-action-bar.vertical .action-label {
+    font-size: 14px !important;
+    line-height: 24px !important;
+  }
+}
