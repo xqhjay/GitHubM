@@ -3,10 +3,13 @@ import Editor, { loader } from '@monaco-editor/react';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { editor } from 'monaco-editor';
 
+const base = import.meta.env.BASE_URL || '/';
+const vsPath = base.endsWith('/') ? `${base}vs` : `${base}/vs`;
+
 // 配置 Monaco 从本地 /vs 目录加载（极大提升加载速度），并配置原生中文包
 loader.config({
   paths: {
-    vs: '/vs'
+    vs: vsPath
   },
   'vs/nls': {
     availableLanguages: {
