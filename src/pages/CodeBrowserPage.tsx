@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import FileTree from '@/components/code/FileTree';
+import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import { CodeEditor } from '@/components/code/CodeEditor';
 import { EditorSearchPanel } from '@/components/code/EditorSearchPanel';
 import type { editor } from 'monaco-editor';
@@ -1205,18 +1206,28 @@ export default function CodeBrowserPage() {
 
               {/* 代码编辑区 */}
               <div className="relative flex-1 min-h-0 flex overflow-hidden">
-                <CodeEditor
-                  value={editContent}
-                  onChange={setEditContent}
-                  fileName={currentFile?.name || ''}
-                  fontSize={editorFontSize}
-                  wordWrap={wordWrap}
-                  onSyntaxError={setSyntaxErrors}
-                  onFontSizeChange={setEditorFontSize}
-                  onMount={(editor) => { editorRef.current = editor; }}
-                  onSearch={() => setShowSearchPanel(true)}
-                  onCursorChange={setCursorPosition}
-                />
+                {isReadingMode ? (
+                  <div className="w-full h-full overflow-y-auto bg-background p-4 md:p-6" style={{ fontSize: editorFontSize }}>
+                    <style>{`.reading-mode-markdown pre code { font-size: inherit !important; } .reading-mode-markdown pre { margin: 0; min-height: 100%; border: none; background: transparent; }`}</style>
+                    <MarkdownRenderer 
+                      content={`\`\`\`${currentFile?.name?.split('.').pop() || 'text'}\n${editContent}\n\`\`\``}
+                      className="max-w-none font-mono reading-mode-markdown"
+                    />
+                  </div>
+                ) : (
+                  <CodeEditor
+                    value={editContent}
+                    onChange={setEditContent}
+                    fileName={currentFile?.name || ''}
+                    fontSize={editorFontSize}
+                    wordWrap={wordWrap}
+                    onSyntaxError={setSyntaxErrors}
+                    onFontSizeChange={setEditorFontSize}
+                    onMount={(editor) => { editorRef.current = editor; }}
+                    onSearch={() => setShowSearchPanel(true)}
+                    onCursorChange={setCursorPosition}
+                  />
+                )}
                 
                 <EditorSearchPanel 
                   editor={editorRef.current} 
