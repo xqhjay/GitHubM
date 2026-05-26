@@ -1,9 +1,10 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { EditorView } from '@codemirror/view';
-import { githubLight, githubDark } from '@uiw/codemirror-theme-github';
-import { loadLanguage, langNames, langs } from '@uiw/codemirror-extensions-langs';
+import { useMemo } from 'react';
+import Editor, { loader } from '@monaco-editor/react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { monaco } from '@/lib/monaco';
+
+// 强制 @monaco-editor/react 使用本地的 monaco 实例，不从 CDN 下载
+loader.config({ monaco: monaco as any });
 
 interface CodeEditorProps {
   value: string;
@@ -14,99 +15,116 @@ interface CodeEditorProps {
   autoFocus?: boolean;
 }
 
-export function CodeEditor({ 
-  value, 
-  onChange, 
-  fileName = '', 
+// 扩展名到 Monaco language 映射
+const extToLanguage: Record<string, string> = {
+  js: 'javascript', jsx: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  json: 'json',
+  html: 'html', htm: 'html',
+  css: 'css', scss: 'scss', less: 'less',
+  md: 'markdown', mdx: 'markdown',
+  py: 'python',
+  java: 'java',
+  c: 'c', cpp: 'cpp', 'c++': 'cpp', h: 'cpp', hpp: 'cpp',
+  cs: 'csharp',
+  go: 'go',
+  rs: 'rust',
+  php: 'php',
+  rb: 'ruby',
+  sh: 'shell', bash: 'shell',
+  yaml: 'yaml', yml: 'yaml',
+  xml: 'xml',
+  sql: 'sql',
+  vue: 'html',
+  svelte: 'html',
+  dockerfile: 'dockerfile',
+  docker: 'dockerfile',
+  kt: 'kotlin',
+  swift: 'swift',
+  dart: 'dart',
+  scala: 'scala',
+  r: 'r',
+  pl: 'perl',
+  lua: 'lua',
+  ps1: 'powershell',
+  gradle: 'groovy',
+  groovy: 'groovy',
+  tf: 'hcl',
+  toml: 'ini',
+  ini: 'ini',
+  diff: 'diff',
+  patch: 'diff',
+  log: 'log',
+};
+
+function getLanguage(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  return extToLanguage[ext] || ext || 'plaintext';
+}
+
+export function CodeEditor({
+  value,
+  onChange,
+  fileName = '',
   readOnly = false,
   fontSize = 14,
-  autoFocus = true
 }: CodeEditorProps) {
   const { theme } = useTheme();
-  
-  // 识别语言
-  const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  const languageExtension = useMemo(() => {
-    // 基础映射
-    const extMap: Record<string, string> = {
-      'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-      'json': 'json', 'html': 'html', 'css': 'css', 'md': 'markdown', 'mdx': 'markdown',
-      'py': 'python', 'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'cpp', 'hpp': 'cpp',
-      'cs': 'csharp', 'go': 'rust', 'rs': 'rust', 'php': 'java', 'rb': 'php',
-      'sh': 'shell', 'bash': 'shell', 'yaml': 'yaml', 'yml': 'yaml', 'xml': 'xml',
-      'sql': 'sql', 'mysql': 'sql', 'vue': 'vue', 'svelte': 'vue'
-    };
-    
-    const langName = extMap[ext] || ext;
-    try {
-      const lang = loadLanguage(langName as any);
-      return lang ? [lang] : [];
-    } catch {
-      return [];
-    }
-  }, [ext]);
-
-  // 自定义基础主题，适配字体大小和透明背景
-  const customTheme = EditorView.theme({
-    "&": {
-      fontSize: `${fontSize}px`,
-      height: "100%",
-      backgroundColor: "transparent !important",
-    },
-    ".cm-scroller": {
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      overflow: "auto",
-    },
-    ".cm-content": {
-      padding: "12px 0",
-    },
-    ".cm-line": {
-      lineHeight: "1.6",
-    },
-    ".cm-gutters": {
-      backgroundColor: "transparent",
-      borderRight: "1px solid hsl(var(--border))",
-      color: "hsl(var(--muted-foreground))",
-    },
-    "&.cm-focused": {
-      outline: "none"
-    }
-  });
-
   const isDark = theme === 'dark';
-  
+  const language = useMemo(() => getLanguage(fileName), [fileName]);
+
   return (
-    <div className="w-full h-full bg-background overflow-hidden relative">
-      <CodeMirror
+    <div className="w-full h-full bg-background overflow-hidden">
+      <Editor
         value={value}
-        height="100%"
-        className="w-full h-full text-left"
-        theme={isDark ? githubDark : githubLight}
-        extensions={[customTheme, ...languageExtension]}
-        onChange={onChange}
-        readOnly={readOnly}
-        autoFocus={autoFocus}
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
-          dropCursor: true,
-          allowMultipleSelections: true,
-          indentOnInput: true,
-          bracketMatching: true,
-          closeBrackets: true,
-          autocompletion: true,
-          rectangularSelection: true,
-          crosshairCursor: true,
-          highlightActiveLine: true,
-          highlightSelectionMatches: true,
-          closeBracketsKeymap: true,
-          defaultKeymap: true,
-          searchKeymap: true,
-          historyKeymap: true,
-          foldKeymap: true,
-          completionKeymap: true,
-          lintKeymap: true,
+        language={language}
+        theme={isDark ? 'vs-dark' : 'light'}
+        onChange={(v) => onChange(v ?? '')}
+        options={{
+          readOnly,
+          fontSize,
+          fontFamily:
+            "ui-monospace, SFMono-Regular, 'Cascadia Code', 'Fira Code', Menlo, Monaco, Consolas, monospace",
+          lineNumbers: 'on',
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          wordWrap: 'on',
+          tabSize: 2,
+          detectIndentation: true,
+          folding: true,
+          foldingHighlight: true,
+          renderLineHighlight: 'line',
+          selectOnLineNumbers: true,
+          bracketPairColorization: { enabled: true },
+          guides: {
+            bracketPairs: true,
+            indentation: true,
+          },
+          padding: { top: 12, bottom: 12 },
+          contextmenu: true,
+          quickSuggestions: true,
+          suggestOnTriggerCharacters: true,
+          wordBasedSuggestions: 'currentDocument',
+          smoothScrolling: true,
+          cursorBlinking: 'smooth',
+          cursorSmoothCaretAnimation: 'on',
+          colorDecorators: true,
+          scrollbar: {
+            useShadows: false,
+            verticalHasArrows: false,
+            horizontalHasArrows: false,
+            vertical: 'auto',
+            horizontal: 'auto',
+            verticalScrollbarSize: 8,
+            horizontalScrollbarSize: 8,
+          },
         }}
+        loading={
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+            编辑器加载中...
+          </div>
+        }
       />
     </div>
   );
