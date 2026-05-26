@@ -40,6 +40,8 @@ import {
   MoreHorizontal,
   GitBranch,
   TerminalSquare,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -245,6 +247,7 @@ export default function CodeBrowserPage() {
 
   // 编辑器全屏
   const [editorFullscreen, setEditorFullscreen] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false);
 
   // 编辑器显示选项
   const [editorFontSize, setEditorFontSize] = useState(14);   // px，范围 10-22
@@ -312,7 +315,7 @@ export default function CodeBrowserPage() {
             setEditContent(decoded);
             setCommitMsg(`Update ${data.name}`);
             setActionMode('edit');
-            setEditorFullscreen(true);
+            setEditorFullscreen(window.innerWidth < 768);
           }
         } else {
           setFileContent('（无法解码文件内容）');
@@ -739,131 +742,6 @@ export default function CodeBrowserPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* ─── 全屏编辑器（fixed overlay，仅移动端 / 小屏） ─── */}
-      {editorFullscreen && actionMode === 'edit' && (
-        <div className="fixed inset-0 z-50 bg-background flex flex-col md:hidden">
-          {/* ── 顶栏 ── */}
-          <div className="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-border bg-card/95 backdrop-blur-sm">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:bg-secondary h-8 gap-1.5 shrink-0"
-              onClick={() => closeAction(true)}
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">返回</span>
-            </Button>
-            <div className="w-px h-5 bg-border shrink-0" />
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-1 shrink-0">
-              {currentBranch && (
-                <Badge variant="outline" className="border-border text-muted-foreground hidden sm:flex items-center gap-1 h-6 text-xs mr-1">
-                  <GitBranch className="w-3 h-3" />{currentBranch}
-                </Badge>
-              )}
-              {/* 搜索 */}
-              <Button
-                variant='ghost'
-                size="icon"
-                className="w-8 h-8 text-muted-foreground hover:bg-secondary"
-                onClick={() => { editorRef.current?.getAction('actions.find')?.run(); }}
-                title="搜索 (Ctrl+F)"
-              >
-                <Search className="w-4 h-4" />
-              </Button>
-              {/* 更多操作下拉菜单 */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:bg-secondary">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <div className="flex items-center justify-between px-2 py-1.5">
-                    <span className="text-xs text-muted-foreground">字号</span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="w-6 h-6 h-6 hover:bg-secondary"
-                        onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.max(10, s - 1)); }} disabled={editorFontSize <= 10}>
-                        <ZoomOut className="w-3.5 h-3.5" />
-                      </Button>
-                      <span className="text-xs w-6 text-center tabular-nums">{editorFontSize}</span>
-                      <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-secondary"
-                        onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.min(22, s + 1)); }} disabled={editorFontSize >= 22}>
-                        <ZoomIn className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { editorRef.current?.getAction('editor.action.quickCommand')?.run(); }}>
-                    <TerminalSquare className="w-4 h-4 mr-2" />命令面板
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
-                    <Copy className="w-4 h-4 mr-2" />复制内容
-                  </DropdownMenuItem>
-                  {currentFile?.download_url && (
-                    <DropdownMenuItem onClick={async () => {
-                      try {
-                        await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? '');
-                      } catch {
-                        toast.error('下载失败，请检查网络或权限');
-                      }
-                    }}>
-                      <Download className="w-4 h-4 mr-2" />下载文件
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <div className="w-px h-4 bg-border shrink-0 mx-0.5" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-8 h-8 text-muted-foreground hover:bg-secondary"
-                onClick={() => closeAction(true)}
-                title="关闭"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-
-          
-
-          {/* ── 代码编辑区 ── */}
-          <div className="flex-1 min-h-0 flex overflow-hidden">
-            <CodeEditor
-              value={editContent}
-              onChange={setEditContent}
-              fileName={currentFile?.name || ''}
-              fontSize={editorFontSize}
-              onMount={(editor) => { editorRef.current = editor; }}
-            />
-          </div>
-          {/* ── 底栏 ── */}
-          <div className="flex items-center gap-3 px-4 h-14 shrink-0 border-t border-border bg-card/95 backdrop-blur-sm">
-            <div className="flex-1 min-w-0">
-              <Input
-                value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                placeholder="提交信息（必填）..."
-                className="h-9 bg-secondary border-border text-foreground placeholder:text-muted-foreground text-sm"
-              />
-            </div>
-            <Button variant="ghost" size="sm"
-              className="h-9 text-muted-foreground border border-border hover:bg-secondary shrink-0"
-              onClick={() => closeAction(true)}>
-              <X className="w-3.5 h-3.5 mr-1.5" />取消
-            </Button>
-            <Button size="sm" className="h-9 bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
-              onClick={handleSaveEdit} disabled={actionBusy || !commitMsg.trim()}>
-              {actionBusy
-                ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />提交中...</>
-                : <><Save className="w-3.5 h-3.5 mr-1.5" />保存并提交</>
-              }
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* ─── 顶栏：面包屑 + 移动端树按钮 + 桌面端树切换 ─── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card/80 shrink-0 min-h-[44px]">
         {/* 移动端：展开文件树按钮 */}
@@ -1044,74 +922,90 @@ export default function CodeBrowserPage() {
 
         {/* 右侧内容区 */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {/* ─── 桌面端内联编辑器（md+ 直接嵌入右侧面板） ─── */}
+                    {/* ─── 统一编辑器（移动端覆盖全屏，桌面端嵌入布局或全屏） ─── */}
           {actionMode === 'edit' && (
-            <div className="hidden md:flex flex-col flex-1 min-h-0">
+            <div className={`flex flex-col bg-background ${editorFullscreen ? 'fixed inset-0 z-50' : 'hidden md:flex flex-1 min-h-0'}`}>
               {/* 编辑器顶栏 */}
-              <div className="flex items-center gap-2 px-3 h-11 shrink-0 border-b border-border bg-card/95">
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <FileItemIcon filename={currentFile?.name ?? ''} isDir={false} size="w-4 h-4" />
-                  <span className="text-sm font-mono text-foreground truncate">{currentFile?.name}</span>
-                  {currentFile && (
-                    <span className="text-xs text-muted-foreground hidden lg:inline">
-                      · {formatFileSize(currentFile.size)} · {fsLineCount} 行
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <Button variant='ghost' size="icon"
-                    className="w-7 h-7 text-muted-foreground hover:bg-secondary"
-                    onClick={() => { editorRef.current?.getAction('actions.find')?.run(); }}
-                    title="搜索 (Ctrl+F)">
-                    <Search className="w-3.5 h-3.5" />
+              {!isReadingMode && (
+                <div className="flex items-center gap-2 px-3 h-11 shrink-0 border-b border-border bg-card/95">
+                  <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:bg-secondary md:hidden shrink-0" onClick={() => closeAction(true)}>
+                    <ArrowLeft className="w-4 h-4" />
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:bg-secondary">
-                        <MoreHorizontal className="w-3.5 h-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <div className="flex items-center justify-between px-2 py-1.5">
-                        <span className="text-xs text-muted-foreground">字号</span>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-secondary"
-                            onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.max(10, s - 1)); }} disabled={editorFontSize <= 10}>
-                            <ZoomOut className="w-3 h-3" />
-                          </Button>
-                          <span className="text-xs w-5 text-center tabular-nums">{editorFontSize}</span>
-                          <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-secondary"
-                            onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.min(22, s + 1)); }} disabled={editorFontSize >= 22}>
-                            <ZoomIn className="w-3 h-3" />
-                          </Button>
+                  <div className="w-px h-4 bg-border shrink-0 md:hidden" />
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <FileItemIcon filename={currentFile?.name ?? ''} isDir={false} size="w-4 h-4" />
+                    <span className="text-sm font-mono text-foreground truncate">{currentFile?.name}</span>
+                    {currentFile && (
+                      <span className="text-xs text-muted-foreground hidden lg:inline">
+                        · {formatFileSize(currentFile.size)} · {fsLineCount} 行
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <Button variant='ghost' size="icon"
+                      className="w-7 h-7 text-muted-foreground hover:bg-secondary"
+                      onClick={() => { editorRef.current?.getAction('actions.find')?.run(); }}
+                      title="搜索 (Ctrl+F)">
+                      <Search className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant='ghost' size="icon"
+                      className="w-7 h-7 text-muted-foreground hover:bg-secondary hidden md:flex"
+                      onClick={() => setEditorFullscreen(!editorFullscreen)}
+                      title={editorFullscreen ? "退出全屏" : "全屏模式"}>
+                      {editorFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button variant='ghost' size="icon"
+                      className="w-7 h-7 text-muted-foreground hover:bg-secondary md:hidden"
+                      onClick={() => setIsReadingMode(!isReadingMode)}
+                      title={isReadingMode ? "退出阅读模式" : "阅读模式"}>
+                      {isReadingMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:bg-secondary">
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <div className="flex items-center justify-between px-2 py-1.5">
+                          <span className="text-xs text-muted-foreground">字号</span>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-secondary"
+                              onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.max(10, s - 1)); }} disabled={editorFontSize <= 10}>
+                              <ZoomOut className="w-3 h-3" />
+                            </Button>
+                            <span className="text-xs w-5 text-center tabular-nums">{editorFontSize}</span>
+                            <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-secondary"
+                              onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.min(22, s + 1)); }} disabled={editorFontSize >= 22}>
+                              <ZoomIn className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => { editorRef.current?.getAction('editor.action.quickCommand')?.run(); }}>
-                        <TerminalSquare className="w-3.5 h-3.5 mr-2" />命令面板
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
-                        <Copy className="w-3.5 h-3.5 mr-2" />复制内容
-                      </DropdownMenuItem>
-                      {currentFile?.download_url && (
-                        <DropdownMenuItem onClick={async () => { try { await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? ''); } catch { toast.error('下载失败'); } }}>
-                          <Download className="w-3.5 h-3.5 mr-2" />下载文件
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => { editorRef.current?.getAction('editor.action.quickCommand')?.run(); }}>
+                          <TerminalSquare className="w-3.5 h-3.5 mr-2" />命令面板
                         </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <div className="w-px h-4 bg-border shrink-0 mx-0.5" />
-                  <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:bg-secondary"
-                    onClick={() => closeAction(true)} title="关闭编辑器">
-                    <X className="w-3.5 h-3.5" />
-                  </Button>
+                        <DropdownMenuItem onSelect={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
+                          <Copy className="w-3.5 h-3.5 mr-2" />复制内容
+                        </DropdownMenuItem>
+                        {currentFile?.download_url && (
+                          <DropdownMenuItem onSelect={async () => { try { await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? ''); } catch { toast.error('下载失败'); } }}>
+                            <Download className="w-3.5 h-3.5 mr-2" />下载文件
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <div className="w-px h-4 bg-border shrink-0 mx-0.5" />
+                    <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:bg-secondary"
+                      onClick={() => closeAction(true)} title="关闭编辑器">
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-
-              
+              )}
 
               {/* 代码编辑区 */}
-              <div className="flex-1 min-h-0 flex overflow-hidden">
+              <div className="relative flex-1 min-h-0 flex overflow-hidden">
                 <CodeEditor
                   value={editContent}
                   onChange={setEditContent}
@@ -1119,27 +1013,43 @@ export default function CodeBrowserPage() {
                   fontSize={editorFontSize}
                   onMount={(editor) => { editorRef.current = editor; }}
                 />
+                
+                {/* 阅读模式悬浮退出按钮 */}
+                {isReadingMode && (
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="absolute top-4 right-4 z-50 rounded-full shadow-lg h-10 w-10 opacity-80 hover:opacity-100 bg-background border border-border md:hidden"
+                    onClick={() => setIsReadingMode(false)}
+                    title="退出阅读模式"
+                  >
+                    <Minimize2 className="w-5 h-5 text-foreground" />
+                  </Button>
+                )}
               </div>
 
+
               {/* 底栏：提交 */}
-              <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-t border-border bg-card/95">
-                <div className="flex-1 min-w-0">
-                  <Input value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)}
-                    placeholder="提交信息（必填）..."
-                    className="h-8 bg-secondary border-border text-foreground placeholder:text-muted-foreground text-sm" />
+              {!isReadingMode && (
+                <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-t border-border bg-card/95">
+                  <div className="flex-1 min-w-0">
+                    <Input value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)}
+                      placeholder="提交信息（必填）..."
+                      className="h-8 bg-secondary border-border text-foreground placeholder:text-muted-foreground text-sm" />
+                  </div>
+                  <Button variant="ghost" size="sm"
+                    className="h-8 text-xs text-muted-foreground border border-border hover:bg-secondary shrink-0 px-3"
+                    onClick={() => closeAction(true)}>
+                    <X className="w-3 h-3 mr-1" />取消
+                  </Button>
+                  <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 px-3"
+                    onClick={handleSaveEdit} disabled={actionBusy || !commitMsg.trim()}>
+                    {actionBusy
+                      ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />提交中...</>
+                      : <><Save className="w-3 h-3 mr-1" />保存并提交</>}
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm"
-                  className="h-8 text-xs text-muted-foreground border border-border hover:bg-secondary shrink-0 px-3"
-                  onClick={() => closeAction(true)}>
-                  <X className="w-3 h-3 mr-1" />取消
-                </Button>
-                <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 px-3"
-                  onClick={handleSaveEdit} disabled={actionBusy || !commitMsg.trim()}>
-                  {actionBusy
-                    ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />提交中...</>
-                    : <><Save className="w-3 h-3 mr-1" />保存并提交</>}
-                </Button>
-              </div>
+              )}
             </div>
           )}
 
