@@ -5,8 +5,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import FileTree from '@/components/code/FileTree';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import { CodeEditor } from '@/components/code/CodeEditor';
+import type { CodeEditorRef } from '@/components/code/CodeEditor';
 import { EditorSearchPanel } from '@/components/code/EditorSearchPanel';
-import type { editor } from 'monaco-editor';
 import {
   ChevronRight,
   ArrowLeft,
@@ -278,7 +278,7 @@ export default function CodeBrowserPage() {
   const [showSyntaxWarning, setShowSyntaxWarning] = useState(false);
 
   // 编辑器搜索
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<CodeEditorRef | null>(null);
 
   // 表单字段
   const [editContent, setEditContent] = useState('');
@@ -1027,10 +1027,10 @@ export default function CodeBrowserPage() {
                       <ArrowLeft className="w-5 h-5" />
                     </Button>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="w-9 h-9 text-white hover:bg-white/10" onClick={() => editorRef.current?.trigger('keyboard', 'undo', null)} title="撤销">
+                      <Button variant="ghost" size="icon" className="w-9 h-9 text-white hover:bg-white/10" onClick={() => editorRef.current?.undo()} title="撤销">
                         <Undo2 className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="w-9 h-9 text-white hover:bg-white/10" onClick={() => editorRef.current?.trigger('keyboard', 'redo', null)} title="重做">
+                      <Button variant="ghost" size="icon" className="w-9 h-9 text-white hover:bg-white/10" onClick={() => editorRef.current?.redo()} title="重做">
                         <Redo2 className="w-4 h-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="w-9 h-9 text-white hover:bg-white/10" onClick={() => setShowSearchPanel(true)} title="搜索/替换">
@@ -1046,18 +1046,6 @@ export default function CodeBrowserPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 bg-[#2d2d2d] text-white border-white/10" onCloseAutoFocus={(e) => e.preventDefault()}>
-                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { 
-                             setTimeout(() => {
-                               editorRef.current?.focus(); 
-                               editorRef.current?.trigger('keyboard', 'editor.action.quickCommand', null); 
-                             }, 150);
-                          }}>
-                            <TerminalSquare className="w-4 h-4 mr-2" />命令面板
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { editorRef.current?.getAction('editor.action.gotoLine')?.run(); }}>
-                            <MoveRight className="w-4 h-4 mr-2" />转到指定行
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator className="bg-white/10" />
                           <div className="flex items-center justify-between px-2 py-1.5">
                             <span className="text-sm">字号</span>
                             <div className="flex items-center gap-1">
@@ -1076,9 +1064,6 @@ export default function CodeBrowserPage() {
                           <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { setWordWrap(w => w === 'on' ? 'off' : 'on'); }}>
                             <WrapText className="w-4 h-4 mr-2" />
                             {wordWrap === 'on' ? '取消自动换行' : '自动换行'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { editorRef.current?.getAction('editor.action.commentLine')?.run(); }}>
-                            <MessageSquare className="w-4 h-4 mr-2" />行注释
                           </DropdownMenuItem>
                           <DropdownMenuSeparator className="bg-white/10" />
                           <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
@@ -1118,13 +1103,13 @@ export default function CodeBrowserPage() {
                   <div className="flex items-center gap-0.5 shrink-0">
                     <Button variant='ghost' size="icon"
                       className="w-7 h-7 text-muted-foreground hover:bg-secondary hidden md:flex"
-                      onClick={() => { editorRef.current?.trigger('keyboard', 'undo', null); }}
+                      onClick={() => { editorRef.current?.undo(); }}
                       title="撤销 (Ctrl+Z)">
                       <Undo2 className="w-3.5 h-3.5" />
                     </Button>
                     <Button variant='ghost' size="icon"
                       className="w-7 h-7 text-muted-foreground hover:bg-secondary hidden md:flex"
-                      onClick={() => { editorRef.current?.trigger('keyboard', 'redo', null); }}
+                      onClick={() => { editorRef.current?.redo(); }}
                       title="重做 (Ctrl+Y)">
                       <Redo2 className="w-3.5 h-3.5" />
                     </Button>
@@ -1171,18 +1156,6 @@ export default function CodeBrowserPage() {
                         <DropdownMenuItem onSelect={() => setShowSearchPanel(true)}>
                           <Search className="w-3.5 h-3.5 mr-2" />搜索 / 替换
                         </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => { editorRef.current?.getAction('editor.action.gotoLine')?.run(); }}>
-                          <MoveRight className="w-3.5 h-3.5 mr-2" />转到指定行
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => { 
-                          setTimeout(() => {
-                            editorRef.current?.focus(); 
-                            editorRef.current?.trigger('keyboard', 'editor.action.quickCommand', null); 
-                          }, 150);
-                        }}>
-                          <TerminalSquare className="w-3.5 h-3.5 mr-2" />命令面板
-                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
                           <Copy className="w-3.5 h-3.5 mr-2" />复制内容
                         </DropdownMenuItem>
@@ -1216,21 +1189,20 @@ export default function CodeBrowserPage() {
                   </div>
                 ) : (
                   <CodeEditor
+                    ref={editorRef}
                     value={editContent}
                     onChange={setEditContent}
                     fileName={currentFile?.name || ''}
                     fontSize={editorFontSize}
                     wordWrap={wordWrap}
-                    onSyntaxError={setSyntaxErrors}
                     onFontSizeChange={setEditorFontSize}
-                    onMount={(editor) => { editorRef.current = editor; }}
                     onSearch={() => setShowSearchPanel(true)}
                     onCursorChange={setCursorPosition}
                   />
                 )}
                 
                 <EditorSearchPanel 
-                  editor={editorRef.current} 
+                  view={editorRef.current?.getView() ?? null} 
                   visible={showSearchPanel} 
                   onClose={() => setShowSearchPanel(false)}
                   readOnly={isReadingMode}

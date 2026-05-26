@@ -1,137 +1,133 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { editor } from 'monaco-editor';
+import { EditorView } from '@codemirror/view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
+import { searchMatchesEffect } from './codemirror-search';
+
+interface Match {
+  from: number;
+  to: number;
+}
 
 interface EditorSearchPanelProps {
-  editor: editor.IStandaloneCodeEditor | null;
+  view: EditorView | null;
   visible: boolean;
   onClose: () => void;
   readOnly?: boolean;
 }
 
-export function EditorSearchPanel({ editor: monacoEditor, visible, onClose, readOnly }: EditorSearchPanelProps) {
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findMatches(
+  text: string,
+  searchText: string,
+  useRegex: boolean,
+  matchCase: boolean,
+  wholeWord: boolean
+): Match[] {
+  if (!searchText) return [];
+
+  let pattern: string;
+  if (useRegex) {
+    pattern = searchText;
+  } else {
+    pattern = escapeRegex(searchText);
+  }
+  if (wholeWord) {
+    pattern = `\\b${pattern}\\b`;
+  }
+
+  const flags = matchCase ? 'g' : 'gi';
+  try {
+    const regex = new RegExp(pattern, flags);
+    const matches: Match[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      if (m[0] === '') {
+        // 避免零宽匹配导致无限循环
+        regex.lastIndex++;
+        continue;
+      }
+      matches.push({ from: m.index, to: m.index + m[0].length });
+    }
+    return matches;
+  } catch {
+    return [];
+  }
+}
+
+export function EditorSearchPanel({ view: editor, visible, onClose, readOnly }: EditorSearchPanelProps) {
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
   const [showReplace, setShowReplace] = useState(false);
-  
+
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
-  
-  const [matches, setMatches] = useState<editor.FindMatch[]>([]);
+
+  const [matches, setMatches] = useState<Match[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  
-  const decorationCollection = useRef<editor.IEditorDecorationsCollection | null>(null);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
-  
-  // Clear search when closed
+  const lastDocRef = useRef<string>('');
+
+  // 关闭时清空搜索
   useEffect(() => {
-    if (!visible && decorationCollection.current) {
-      decorationCollection.current.clear();
+    if (!visible) {
+      editor?.dispatch({ effects: searchMatchesEffect.of({ matches: [], activeIndex: -1 }) });
       setMatches([]);
     }
     if (visible) {
       setTimeout(() => searchInputRef.current?.focus(), 100);
     }
-  }, [visible]);
+  }, [visible, editor]);
 
   const performSearch = useCallback(() => {
-    if (!monacoEditor) return;
-    
+    if (!editor) return;
+
+    const text = editor.state.doc.toString();
+    lastDocRef.current = text;
+
     if (!searchText) {
-      if (decorationCollection.current) {
-        decorationCollection.current.clear();
-      }
+      editor.dispatch({ effects: searchMatchesEffect.of({ matches: [], activeIndex: -1 }) });
       setMatches([]);
       return;
     }
 
-    const model = monacoEditor.getModel();
-    if (!model) return;
+    const newMatches = findMatches(text, searchText, useRegex, matchCase, wholeWord);
+    setMatches(newMatches);
 
-    try {
-      const newMatches = model.findMatches(
-        searchText,
-        false, // searchOnlyEditableRange
-        useRegex,
-        matchCase,
-        wholeWord ? '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/? \n\t\r' : null, // word separators triggers whole word matching
-        false // captureMatches
-      );
-
-      setMatches(newMatches);
-
-      // We handle the highlighting using standard decorations
-      // So we can differentiate the current match from others
-      updateDecorations(newMatches, currentIndex);
-      
-      // Reset index if out of bounds
-      if (newMatches.length > 0 && currentIndex >= newMatches.length) {
-        setCurrentIndex(0);
-      }
-
-    } catch (e) {
-      // Regex parse error
-      if (decorationCollection.current) {
-        decorationCollection.current.clear();
-      }
-      setMatches([]);
+    const activeIdx = currentIndex >= newMatches.length ? 0 : currentIndex;
+    if (newMatches.length > 0 && currentIndex >= newMatches.length) {
+      setCurrentIndex(0);
     }
-  }, [monacoEditor, searchText, useRegex, matchCase, wholeWord, currentIndex]);
 
-  const updateDecorations = (currentMatches: editor.FindMatch[], activeIndex: number) => {
-    if (!monacoEditor) return;
-    const decorations = currentMatches.map((match, i) => ({
-      range: match.range,
-      options: {
-        className: i === activeIndex 
-          ? 'bg-amber-500/60 dark:bg-amber-500/80 rounded-[2px]' 
-          : 'bg-amber-300/40 dark:bg-amber-300/30 rounded-[2px]',
-        overviewRuler: {
-          color: 'rgba(251, 191, 36, 0.5)',
-          position: 1 // Center
-        }
-      }
-    }));
+    editor.dispatch({
+      effects: searchMatchesEffect.of({ matches: newMatches, activeIndex: activeIdx }),
+    });
+  }, [editor, searchText, useRegex, matchCase, wholeWord, currentIndex]);
 
-    if (!decorationCollection.current) {
-      // For Monaco 0.33+
-      if (typeof monacoEditor.createDecorationsCollection === 'function') {
-        decorationCollection.current = monacoEditor.createDecorationsCollection(decorations);
-      } else {
-        // Fallback for older monaco if needed (though we use 0.55)
-        const d = monacoEditor.deltaDecorations([], decorations);
-        decorationCollection.current = {
-          clear: () => monacoEditor.deltaDecorations(d, []),
-          set: (newDec: any) => {
-            const ids = monacoEditor.deltaDecorations(d, newDec);
-            Object.assign(decorationCollection.current!, { getRanges: () => ids });
-            return ids;
-          },
-          length: decorations.length,
-          getRanges: () => decorations.map(x => x.range),
-          getRange: (i: number) => decorations[i].range
-        } as any;
-      }
-    } else {
-      decorationCollection.current.set(decorations);
-    }
-  };
-
+  // 搜索参数变化时重新搜索
   useEffect(() => {
     if (visible) {
       performSearch();
     }
-  }, [performSearch, visible]);
+  }, [performSearch, visible, searchText, useRegex, matchCase, wholeWord]);
 
   const revealMatch = (idx: number) => {
-    if (!monacoEditor || matches.length === 0) return;
+    if (!editor || matches.length === 0) return;
     const match = matches[idx];
-    monacoEditor.setSelection(match.range);
-    monacoEditor.revealRangeInCenterIfOutsideViewport(match.range);
+    editor.dispatch({
+      selection: { anchor: match.from, head: match.to },
+      effects: EditorView.scrollIntoView(match.from, { y: 'center' }),
+    });
+    editor.dispatch({
+      effects: searchMatchesEffect.of({ matches, activeIndex: idx }),
+    });
   };
 
   const nextMatch = () => {
@@ -149,33 +145,77 @@ export function EditorSearchPanel({ editor: monacoEditor, visible, onClose, read
   };
 
   const handleReplace = () => {
-    if (!monacoEditor || matches.length === 0 || readOnly) return;
+    if (!editor || matches.length === 0 || readOnly) return;
     const match = matches[currentIndex];
-    
-    monacoEditor.executeEdits('search-replace', [{
-      range: match.range,
-      text: replaceText
-    }]);
+
+    editor.dispatch({
+      changes: { from: match.from, to: match.to, insert: replaceText },
+    });
+
+    // 替换后重新搜索
+    setTimeout(() => {
+      const text = editor.state.doc.toString();
+      const newMatches = findMatches(text, searchText, useRegex, matchCase, wholeWord);
+      setMatches(newMatches);
+      const newIdx = Math.min(currentIndex, Math.max(0, newMatches.length - 1));
+      setCurrentIndex(newIdx);
+      editor.dispatch({
+        effects: searchMatchesEffect.of({ matches: newMatches, activeIndex: newIdx }),
+      });
+      if (newMatches.length > 0) {
+        revealMatch(newIdx);
+      }
+    }, 0);
   };
 
   const handleReplaceAll = () => {
-    if (!monacoEditor || matches.length === 0 || readOnly) return;
-    
-    const edits = matches.map(match => ({
-      range: match.range,
-      text: replaceText
-    }));
-    
-    monacoEditor.executeEdits('search-replace-all', edits);
+    if (!editor || matches.length === 0 || readOnly) return;
+
+    // 从后往前替换，避免位置偏移
+    const sorted = [...matches].sort((a, b) => b.from - a.from);
+    editor.dispatch({
+      changes: sorted.map((m) => ({ from: m.from, to: m.to, insert: replaceText })),
+    });
+
+    setTimeout(() => {
+      const text = editor.state.doc.toString();
+      const newMatches = findMatches(text, searchText, useRegex, matchCase, wholeWord);
+      setMatches(newMatches);
+      setCurrentIndex(0);
+      editor.dispatch({
+        effects: searchMatchesEffect.of({ matches: newMatches, activeIndex: 0 }),
+      });
+    }, 0);
   };
 
+  // 文档变化时自动重新搜索
   useEffect(() => {
-    if (!monacoEditor || !visible) return;
-    const disposable = monacoEditor.onDidChangeModelContent(() => {
-      performSearch();
-    });
-    return () => disposable.dispose();
-  }, [monacoEditor, visible, performSearch]);
+    if (!editor || !visible) return;
+
+    const handleUpdate = () => {
+      const text = editor.state.doc.toString();
+      if (text !== lastDocRef.current) {
+        lastDocRef.current = text;
+        const newMatches = findMatches(text, searchText, useRegex, matchCase, wholeWord);
+        setMatches(newMatches);
+        const newIdx = Math.min(currentIndex, Math.max(0, newMatches.length - 1));
+        setCurrentIndex(newIdx);
+        editor.dispatch({
+          effects: searchMatchesEffect.of({ matches: newMatches, activeIndex: newIdx }),
+        });
+      }
+    };
+
+    // 使用 requestAnimationFrame 轮询检测文档变化（轻量级）
+    let rafId: number;
+    const poll = () => {
+      handleUpdate();
+      rafId = requestAnimationFrame(poll);
+    };
+    rafId = requestAnimationFrame(poll);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [editor, visible, searchText, useRegex, matchCase, wholeWord, currentIndex]);
 
   if (!visible) return null;
 
@@ -190,13 +230,13 @@ export function EditorSearchPanel({ editor: monacoEditor, visible, onClose, read
             <Toggle size="sm" pressed={useRegex} onPressedChange={setUseRegex} className="h-6 px-2 text-xs font-mono data-[state=on]:bg-secondary" title="正则表达式">.*</Toggle>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-1 relative">
-          <Input 
+          <Input
             ref={searchInputRef}
             value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            onKeyDown={e => {
+            onChange={(e) => setSearchText(e.target.value)}
+            onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 if (e.shiftKey) prevMatch();
                 else nextMatch();
@@ -212,10 +252,10 @@ export function EditorSearchPanel({ editor: monacoEditor, visible, onClose, read
 
         {showReplace && !readOnly && (
           <div className="flex items-center gap-1">
-            <Input 
+            <Input
               value={replaceText}
-              onChange={e => setReplaceText(e.target.value)}
-              onKeyDown={e => {
+              onChange={(e) => setReplaceText(e.target.value)}
+              onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   handleReplace();
                 }
