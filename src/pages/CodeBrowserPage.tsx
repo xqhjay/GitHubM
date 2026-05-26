@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import FileTree from '@/components/code/FileTree';
 import { CodeEditor } from '@/components/code/CodeEditor';
+import { EditorSearchPanel } from '@/components/code/EditorSearchPanel';
 import type { editor } from 'monaco-editor';
 import {
   ChevronRight,
@@ -42,6 +43,9 @@ import {
   TerminalSquare,
   Maximize2,
   Minimize2,
+  Undo2,
+  Redo2,
+  Menu,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -158,6 +162,12 @@ interface UploadFile {
   targetPath: string;
 }
 
+export interface EditorSyntaxError {
+  line: number;
+  column: number;
+  message: string;
+}
+
 /**
  * 将 File 转换为 base64 字符串（GitHub Contents API 所需格式）。
  *
@@ -251,6 +261,17 @@ export default function CodeBrowserPage() {
 
   // 编辑器显示选项
   const [editorFontSize, setEditorFontSize] = useState(14);   // px，范围 10-22
+
+  // 编辑器搜索面板状态
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState('1:1');
+  const [wordWrap, setWordWrap] = useState<'on' | 'off'>(
+    window.innerWidth < 768 ? 'on' : 'off'
+  );
+  
+  // 语法错误状态
+  const [syntaxErrors, setSyntaxErrors] = useState<EditorSyntaxError[]>([]);
+  const [showSyntaxWarning, setShowSyntaxWarning] = useState(false);
 
   // 编辑器搜索
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -401,8 +422,13 @@ export default function CodeBrowserPage() {
   };
 
   // ─── 保存编辑 ───
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (force = false) => {
     if (!owner || !repo || !currentFile || !commitMsg.trim()) { toast.error('请填写提交信息'); return; }
+    if (syntaxErrors.length > 0 && !force) {
+      setShowSyntaxWarning(true);
+      return;
+    }
+    setShowSyntaxWarning(false);
     setActionBusy(true);
     try {
       await updateFileContent(owner, repo, currentFile.path, {
@@ -741,21 +767,39 @@ export default function CodeBrowserPage() {
   }, [actionMode]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* ─── 顶栏：面包屑 + 移动端树按钮 + 桌面端树切换 ─── */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card/80 shrink-0 min-h-[44px]">
-        {/* 移动端：展开文件树按钮 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden h-8 w-8 text-muted-foreground hover:bg-secondary shrink-0"
-          onClick={() => setTreeOpen(true)}
-          title="打开文件树"
-        >
-          <PanelLeftOpen className="w-4 h-4" />
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background text-foreground">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* ─── 桌面端：Activity Bar ─── */}
+        <div className="hidden md:flex flex-col w-12 border-r border-border bg-sidebar shrink-0 items-center py-3 gap-4 z-10">
+        <Button variant="ghost" size="icon" className={`w-10 h-10 rounded-xl ${treeVisible ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setTreeVisible(true)} title="资源管理器">
+          <FolderOpen className="w-5 h-5" />
         </Button>
+        <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-muted-foreground hover:text-foreground" onClick={() => setShowSearchPanel(true)} title="搜索">
+          <Search className="w-5 h-5" />
+        </Button>
+        <div className="mt-auto mb-2 flex flex-col gap-4">
+          <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-muted-foreground hover:text-foreground" onClick={() => navigate('/repos')} title="返回仓库列表">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </div>
+      </div>
 
-        {/* 面包屑 */}
+      {/* ─── 主体内容区布局 ─── */}
+      <div className="flex flex-1 min-w-0 h-full overflow-hidden flex-col md:flex-row">
+        
+        {/* === 原顶部结构变身为内容区头部 === */}
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-border bg-card/80 shrink-0 min-h-[44px]">
+          {/* 移动端：展开文件树按钮 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-8 w-8 text-muted-foreground hover:bg-secondary shrink-0"
+            onClick={() => setTreeOpen(true)}
+            title="打开文件树"
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </Button>
+          {/* 移动端保留面包屑等 */}
         <div className="flex items-center gap-1 text-sm text-muted-foreground flex-1 min-w-0 overflow-x-auto whitespace-nowrap scrollbar-none">
           <button type="button" className="hover:text-primary transition-colors shrink-0" onClick={() => navigate('/repos')}>仓库</button>
           <ChevronRight className="w-3 h-3 shrink-0" />
@@ -834,25 +878,22 @@ export default function CodeBrowserPage() {
           </Badge>
         )}
 
-        {/* 桌面端：收起/展开侧边树 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hidden md:flex h-8 w-8 text-muted-foreground hover:bg-secondary shrink-0"
-          onClick={() => setTreeVisible(v => !v)}
-          title={treeVisible ? '收起文件树' : '展开文件树'}
-        >
-          {treeVisible ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-        </Button>
-      </div>
+        </div>
 
-      {/* ─── 主体：左侧文件树 + 右侧内容 ─── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* 桌面端固定侧边树 */}
-        {treeVisible && (
-          <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-border bg-sidebar overflow-hidden">
-            <FileTree
+        {/* ─── 主体结构 (Sidebar + Main) ─── */}
+        <div className="flex flex-1 min-w-0 h-full overflow-hidden">
+          
+          {/* 桌面端固定侧边树 */}
+          {treeVisible && (
+            <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-border bg-sidebar overflow-hidden flex-1">
+              <div className="h-10 px-4 flex items-center justify-between border-b border-border shrink-0">
+                <span className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">资源管理器</span>
+                <Button variant="ghost" size="icon" className="w-6 h-6 text-muted-foreground hover:bg-secondary" onClick={() => setTreeVisible(false)} title="收起侧边栏">
+                  <PanelLeftClose className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <FileTree
               owner={owner!}
               repo={repo!}
               branch={currentBranch}
@@ -878,6 +919,7 @@ export default function CodeBrowserPage() {
                 }
               }}
             />
+          </div>
           </aside>
         )}
 
@@ -920,18 +962,141 @@ export default function CodeBrowserPage() {
           </SheetContent>
         </Sheet>
 
-        {/* 右侧内容区 */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                    {/* ─── 统一编辑器（移动端覆盖全屏，桌面端嵌入布局或全屏） ─── */}
+        {/* ─── 主内容区 ─── */}
+        <div className="flex-1 min-w-0 flex flex-col h-full bg-background relative overflow-hidden">
+          
+          {/* 桌面端 Editor Tabs */}
+          {filePath && (
+            <div className="hidden md:flex flex-col shrink-0">
+              <div className="flex items-end px-2 pt-2 h-9 bg-muted/30">
+                <div className="flex items-center gap-2 px-3 h-7 bg-background border-t border-x border-border rounded-t-sm text-sm text-foreground shrink-0 cursor-pointer min-w-[120px] max-w-[200px]">
+                  <FileItemIcon filename={currentFile?.name ?? ''} isDir={false} size="w-4 h-4" />
+                  <span className="truncate flex-1">{currentFile?.name}</span>
+                  <X className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full p-0.5" onClick={(e) => { e.stopPropagation(); closeAction(true); }} />
+                </div>
+              </div>
+              <div className="flex items-center px-4 h-7 border-b border-border bg-background text-xs text-muted-foreground shrink-0 overflow-x-auto whitespace-nowrap scrollbar-none">
+                <span className="hover:text-foreground cursor-pointer" onClick={() => navigate('/repos')}>仓库</span>
+                <ChevronRight className="w-3 h-3 mx-1 opacity-50" />
+                <span className="hover:text-foreground cursor-pointer" onClick={() => navigate(`/repos/${owner}/${repo}`)}>{owner}/{repo}</span>
+                <ChevronRight className="w-3 h-3 mx-1 opacity-50" />
+                <span className="hover:text-foreground cursor-pointer" onClick={() => navigate(`/repos/${owner}/${repo}/code`)}>代码</span>
+                {pathParts.map((part, i) => {
+                  const targetPath = pathParts.slice(0, i + 1).join('/');
+                  const targetFullPath = `/repos/${owner}/${repo}/code/${targetPath}`;
+                  const isLast = i === pathParts.length - 1;
+                  const handleBreadcrumbClick = () => {
+                    const stack = getCodeNavStack(owner!, repo!);
+                    const targetIdx = stack.lastIndexOf(targetFullPath);
+                    const currentIdx = stack.length - 1;
+                    if (targetIdx >= 0 && targetIdx < currentIdx) {
+                      navigate(targetIdx - currentIdx);
+                    } else {
+                      navigate(targetFullPath);
+                    }
+                  };
+                  return (
+                    <span key={targetPath} className="flex items-center shrink-0">
+                      <ChevronRight className="w-3 h-3 mx-1 opacity-50" />
+                      <span
+                        className={`${isLast ? 'text-foreground font-medium' : 'hover:text-foreground cursor-pointer'}`}
+                        onClick={isLast ? undefined : handleBreadcrumbClick}
+                      >
+                        {part}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 统一编辑器区域 */}
           {actionMode === 'edit' && (
             <div className={`flex flex-col bg-background ${editorFullscreen ? 'fixed inset-0 z-50' : 'hidden md:flex flex-1 min-h-0'}`}>
               {/* 编辑器顶栏 */}
               {!isReadingMode && (
-                <div className="flex items-center gap-2 px-3 h-11 shrink-0 border-b border-border bg-card/95">
-                  <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:bg-secondary md:hidden shrink-0" onClick={() => closeAction(true)}>
-                    <ArrowLeft className="w-4 h-4" />
-                  </Button>
-                  <div className="w-px h-4 bg-border shrink-0 md:hidden" />
+                <div className="flex flex-col">
+                  {/* 移动端工具栏 */}
+                  <div className="flex md:hidden items-center justify-between px-2 h-12 bg-[#2d2d2d] text-white shrink-0">
+                    <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10" onClick={() => closeAction(true)}>
+                      <Menu className="w-5 h-5" />
+                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10" onClick={() => editorRef.current?.trigger('keyboard', 'undo', null)}>
+                        <Undo2 className="w-5 h-5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10" onClick={() => editorRef.current?.trigger('keyboard', 'redo', null)}>
+                        <Redo2 className="w-5 h-5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10" onClick={() => handleSaveEdit()}>
+                        <Save className="w-5 h-5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10" onClick={() => setIsReadingMode(!isReadingMode)}>
+                        <Pencil className="w-5 h-5" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="w-10 h-10 text-white hover:bg-white/10">
+                            <MoreHorizontal className="w-5 h-5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 bg-[#2d2d2d] text-white border-white/10">
+                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => setShowSearchPanel(true)}>
+                            <Search className="w-4 h-4 mr-2" />搜索
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { 
+                             setTimeout(() => {
+                               editorRef.current?.focus(); 
+                               editorRef.current?.trigger('keyboard', 'editor.action.quickCommand', null); 
+                             }, 50);
+                          }}>
+                            <TerminalSquare className="w-4 h-4 mr-2" />命令面板
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { editorRef.current?.getAction('editor.action.gotoLine')?.run(); }}>
+                            <MoveRight className="w-4 h-4 mr-2" />转到指定行
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <div className="flex items-center justify-between px-2 py-1.5">
+                            <span className="text-sm">字号</span>
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-white/10"
+                                onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.max(10, s - 1)); }} disabled={editorFontSize <= 10}>
+                                <ZoomOut className="w-4 h-4" />
+                              </Button>
+                              <span className="text-sm w-6 text-center tabular-nums">{editorFontSize}</span>
+                              <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-white/10"
+                                onClick={(e) => { e.preventDefault(); setEditorFontSize(s => Math.min(22, s + 1)); }} disabled={editorFontSize >= 22}>
+                                <ZoomIn className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
+                            <Copy className="w-4 h-4 mr-2" />复制内容
+                          </DropdownMenuItem>
+                          {currentFile?.download_url && (
+                            <DropdownMenuItem className="focus:bg-white/10 focus:text-white" onSelect={async () => { try { await downloadCodeFile(currentFile.download_url!, currentFile.name, token ?? ''); } catch { toast.error('下载失败'); } }}>
+                              <Download className="w-4 h-4 mr-2" />下载文件
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                  {/* 移动端文件信息栏 */}
+                  <div className="flex md:hidden items-center justify-between px-3 h-8 bg-[#1e1e1e] text-gray-400 text-xs shrink-0 font-mono">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="truncate text-white">{editContent !== currentFile?.content ? '*' : ''}{currentFile?.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span>{cursorPosition}</span>
+                      <span>UTF-8</span>
+                    </div>
+                  </div>
+
+                  {/* 桌面端工具栏 */}
+                  <div className="hidden md:flex items-center gap-2 px-3 h-11 shrink-0 border-b border-border bg-card/95">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <FileItemIcon filename={currentFile?.name ?? ''} isDir={false} size="w-4 h-4" />
                     <span className="text-sm font-mono text-foreground truncate">{currentFile?.name}</span>
@@ -943,8 +1108,21 @@ export default function CodeBrowserPage() {
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
                     <Button variant='ghost' size="icon"
+                      className="w-7 h-7 text-muted-foreground hover:bg-secondary hidden md:flex"
+                      onClick={() => { editorRef.current?.trigger('keyboard', 'undo', null); }}
+                      title="撤销 (Ctrl+Z)">
+                      <Undo2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant='ghost' size="icon"
+                      className="w-7 h-7 text-muted-foreground hover:bg-secondary hidden md:flex"
+                      onClick={() => { editorRef.current?.trigger('keyboard', 'redo', null); }}
+                      title="重做 (Ctrl+Y)">
+                      <Redo2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <div className="w-px h-4 bg-border shrink-0 hidden md:block mx-0.5" />
+                    <Button variant='ghost' size="icon"
                       className="w-7 h-7 text-muted-foreground hover:bg-secondary"
-                      onClick={() => { editorRef.current?.getAction('actions.find')?.run(); }}
+                      onClick={() => setShowSearchPanel(!showSearchPanel)}
                       title="搜索 (Ctrl+F)">
                       <Search className="w-3.5 h-3.5" />
                     </Button>
@@ -981,8 +1159,19 @@ export default function CodeBrowserPage() {
                             </Button>
                           </div>
                         </div>
+                        <DropdownMenuItem onSelect={() => setShowSearchPanel(true)}>
+                          <Search className="w-3.5 h-3.5 mr-2" />搜索 / 替换
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => { editorRef.current?.getAction('editor.action.gotoLine')?.run(); }}>
+                          <MoveRight className="w-3.5 h-3.5 mr-2" />转到指定行
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => { editorRef.current?.getAction('editor.action.quickCommand')?.run(); }}>
+                        <DropdownMenuItem onSelect={() => { 
+                          setTimeout(() => {
+                            editorRef.current?.focus(); 
+                            editorRef.current?.trigger('keyboard', 'editor.action.quickCommand', null); 
+                          }, 50);
+                        }}>
                           <TerminalSquare className="w-3.5 h-3.5 mr-2" />命令面板
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => { copyToClipboard(editContent); toast.success('代码已复制'); }}>
@@ -1001,6 +1190,8 @@ export default function CodeBrowserPage() {
                       <X className="w-3.5 h-3.5" />
                     </Button>
                   </div>
+                  {/* 桌面端工具栏闭合 */}
+                  </div>
                 </div>
               )}
 
@@ -1011,8 +1202,39 @@ export default function CodeBrowserPage() {
                   onChange={setEditContent}
                   fileName={currentFile?.name || ''}
                   fontSize={editorFontSize}
+                  wordWrap={wordWrap}
+                  onSyntaxError={setSyntaxErrors}
                   onMount={(editor) => { editorRef.current = editor; }}
+                  onSearch={() => setShowSearchPanel(true)}
+                  onCursorChange={setCursorPosition}
                 />
+                
+                <EditorSearchPanel 
+                  editor={editorRef.current} 
+                  visible={showSearchPanel} 
+                  onClose={() => setShowSearchPanel(false)}
+                  readOnly={isReadingMode}
+                />
+
+                <AlertDialog open={showSyntaxWarning} onOpenChange={setShowSyntaxWarning}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5 text-destructive" />
+                        存在语法错误
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        当前代码存在 {syntaxErrors.length} 个语法错误。是否仍要强行保存？
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>返回修改</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => {
+                        handleSaveEdit(true);
+                      }}>强行保存</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 
                 {/* 阅读模式悬浮退出按钮 */}
                 {isReadingMode && (
@@ -1031,9 +1253,23 @@ export default function CodeBrowserPage() {
 
               {/* 底栏：提交 */}
               {!isReadingMode && (
-                <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-t border-border bg-card/95">
-                  <div className="flex-1 min-w-0">
-                    <Input value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)}
+                <div className="flex flex-col shrink-0 border-t border-border bg-card/95">
+                  {syntaxErrors.length > 0 && (
+                    <div className="px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-xs text-destructive max-h-24 overflow-y-auto">
+                      <div className="font-semibold mb-1 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />发现 {syntaxErrors.length} 个语法错误：</div>
+                      <ul className="list-disc list-inside pl-4 space-y-0.5">
+                        {syntaxErrors.map((err, i) => (
+                          <li key={i}>[{err.line}:{err.column}] {err.message}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 px-3 h-12">
+                    <div className="flex-1 min-w-0">
+                      <Input value={commitMsg} onChange={(e) => {
+                        setCommitMsg(e.target.value);
+                        setShowSyntaxWarning(false);
+                      }}
                       placeholder="提交信息（必填）..."
                       className="h-8 bg-secondary border-border text-foreground placeholder:text-muted-foreground text-sm" />
                   </div>
@@ -1042,12 +1278,13 @@ export default function CodeBrowserPage() {
                     onClick={() => closeAction(true)}>
                     <X className="w-3 h-3 mr-1" />取消
                   </Button>
-                  <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 px-3"
-                    onClick={handleSaveEdit} disabled={actionBusy || !commitMsg.trim()}>
+                  <Button size="sm" className={`h-8 text-xs shrink-0 px-3 ${syntaxErrors.length > 0 ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+                    onClick={() => handleSaveEdit()} disabled={actionBusy || !commitMsg.trim()}>
                     {actionBusy
                       ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />提交中...</>
                       : <><Save className="w-3 h-3 mr-1" />保存并提交</>}
                   </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1313,9 +1550,8 @@ export default function CodeBrowserPage() {
           </div>
         )}
       </div>
-          </div>{/* end overflow-y-auto */}
-        </div>{/* end 右侧内容区 */}
-      </div>{/* end 主体左右布局 */}
+    </div>{/* end 右侧内容区 */}
+  </div>{/* end 主体左右布局 */}
 
       {/* ── 新建文件对话框 ── */}
       <Dialog open={actionMode === 'new-file'} onOpenChange={(open) => { if (!open) closeAction(); }}>
@@ -1627,6 +1863,23 @@ export default function CodeBrowserPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
+      </div>
+      
+      {/* 桌面端 Status Bar */}
+      <div className="hidden md:flex items-center justify-between px-3 h-6 border-t border-border bg-[#007acc] text-white text-[10px] shrink-0 font-mono z-20">
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-1 cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors"><GitBranch className="w-3 h-3"/> {currentBranch}</span>
+          {syntaxErrors.length > 0 && <span className="flex items-center gap-1 cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors"><AlertCircle className="w-3 h-3"/> {syntaxErrors.length}</span>}
+        </div>
+        <div className="flex items-center gap-4">
+          {actionMode === 'edit' && <span className="cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors">{cursorPosition}</span>}
+          <span className="cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors">UTF-8</span>
+          <span className="cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors">TypeScript React</span>
+          <span className="cursor-pointer hover:bg-white/20 px-1 py-0.5 rounded transition-colors">Spaces: 2</span>
+        </div>
+      </div>
+    </div>
     </div>
   );
 }

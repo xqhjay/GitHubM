@@ -25,7 +25,11 @@ interface CodeEditorProps {
   readOnly?: boolean;
   fontSize?: number;
   autoFocus?: boolean;
-  onMount?: (editor: editor.IStandaloneCodeEditor) => void;
+  onMount?: (editor: editor.IStandaloneCodeEditor, monaco: any) => void;
+  onSearch?: () => void;
+  onCursorChange?: (position: string) => void;
+  onSyntaxError?: (errors: { line: number; column: number; message: string }[]) => void;
+  wordWrap?: 'on' | 'off';
 }
 
 const extToLanguage: Record<string, string> = {
@@ -58,6 +62,10 @@ export function CodeEditor({
   fontSize = 14,
   autoFocus = false,
   onMount,
+  onSearch,
+  onCursorChange,
+  onSyntaxError,
+  wordWrap = 'off',
 }: CodeEditorProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -80,8 +88,34 @@ export function CodeEditor({
         language={language}
         theme={isDark ? 'vs-dark' : 'light'}
         onChange={(v) => onChange && onChange(v ?? '')}
-        onMount={(editor) => {
-          if (onMount) onMount(editor);
+        onMount={(editor, monaco) => {
+          if (onSearch) {
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => {
+              onSearch();
+            });
+          }
+          if (onCursorChange) {
+            editor.onDidChangeCursorPosition((e) => {
+              onCursorChange(`${e.position.lineNumber}:${e.position.column}`);
+            });
+          }
+          if (onSyntaxError) {
+            editor.onDidChangeModelDecorations(() => {
+              const model = editor.getModel();
+              if (model) {
+                const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+                const errors = markers
+                  .filter((marker: any) => marker.severity === monaco.MarkerSeverity.Error)
+                  .map((marker: any) => ({
+                    line: marker.startLineNumber,
+                    column: marker.startColumn,
+                    message: marker.message,
+                  }));
+                onSyntaxError(errors);
+              }
+            });
+          }
+          if (onMount) onMount(editor, monaco);
           if (autoFocus) {
             editor.focus();
           }
@@ -95,7 +129,7 @@ export function CodeEditor({
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           automaticLayout: true,
-          wordWrap: isMobile ? 'on' : 'off', // 移动端自动换行，避免横向滚动条影响阅读体验
+          wordWrap,
           tabSize: 2,
           detectIndentation: true,
           folding: !isMobile, // 移动端可以关闭折叠，节省空间
@@ -121,7 +155,7 @@ export function CodeEditor({
             verticalHasArrows: false,
             horizontalHasArrows: false,
             vertical: 'auto',
-            horizontal: isMobile ? 'hidden' : 'auto',
+            horizontal: isMobile ? (wordWrap === 'on' ? 'hidden' : 'auto') : 'auto',
             verticalScrollbarSize: isMobile ? 4 : 8,
             horizontalScrollbarSize: isMobile ? 4 : 8,
           },
