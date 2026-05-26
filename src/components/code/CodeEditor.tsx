@@ -4,7 +4,21 @@ import { EditorView, keymap, ViewUpdate } from '@codemirror/view';
 import { Extension } from '@codemirror/state';
 import { githubLight, githubDark } from '@uiw/codemirror-theme-github';
 import { undo, redo } from '@codemirror/commands';
-import { loadLanguage } from '@uiw/codemirror-extensions-langs';
+import { javascript } from '@codemirror/lang-javascript';
+import { typescriptLanguage } from '@codemirror/lang-javascript';
+import { json } from '@codemirror/lang-json';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { markdown } from '@codemirror/lang-markdown';
+import { python } from '@codemirror/lang-python';
+import { java } from '@codemirror/lang-java';
+import { cpp } from '@codemirror/lang-cpp';
+import { go } from '@codemirror/lang-go';
+import { rust } from '@codemirror/lang-rust';
+import { php } from '@codemirror/lang-php';
+import { xml } from '@codemirror/lang-xml';
+import { yaml } from '@codemirror/lang-yaml';
+import { sql } from '@codemirror/lang-sql';
 import { basicSetup } from '@uiw/react-codemirror';
 import { searchHighlightField, searchTheme } from './codemirror-search';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -33,42 +47,60 @@ interface CodeEditorProps {
 
 function getLanguageExtension(fileName: string): Extension | null {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  const langMap: Record<string, string> = {
-    js: 'javascript', mjs: 'javascript', cjs: 'javascript',
-    jsx: 'jsx',
-    ts: 'typescript',
-    tsx: 'tsx',
-    json: 'json',
-    html: 'html', htm: 'html', vue: 'html', svelte: 'html',
-    css: 'css', scss: 'css', sass: 'css', less: 'css',
-    md: 'markdown', mdx: 'markdown',
-    py: 'python', pyw: 'python',
-    java: 'java',
-    c: 'cpp', cpp: 'cpp', cxx: 'cpp', cc: 'cpp', h: 'cpp', hpp: 'cpp', hxx: 'cpp',
-    cs: 'csharp',
-    go: 'go',
-    rs: 'rust',
-    php: 'php',
-    rb: 'ruby',
-    sh: 'shell', bash: 'shell', zsh: 'shell',
-    yaml: 'yaml', yml: 'yaml',
-    xml: 'xml', svg: 'xml',
-    sql: 'sql',
-    kt: 'kotlin', kts: 'kotlin',
-    swift: 'swift',
-    dart: 'dart',
-    scala: 'scala', sc: 'scala',
-    r: 'r',
-    lua: 'lua',
-    ps1: 'powershell',
-    groovy: 'groovy', gradle: 'groovy',
-    ini: 'ini', toml: 'ini', cfg: 'ini',
-    diff: 'diff', patch: 'diff',
-    dockerfile: 'dockerfile',
-  };
-  const langName = langMap[ext];
-  if (!langName) return null;
-  return loadLanguage(langName as Parameters<typeof loadLanguage>[0]);
+  switch (ext) {
+    case 'js':
+    case 'mjs':
+    case 'cjs':
+    case 'jsx':
+      return javascript({ jsx: ext === 'jsx' });
+    case 'ts':
+    case 'tsx':
+      return javascript({ typescript: true, jsx: ext === 'tsx' });
+    case 'json':
+      return json();
+    case 'html':
+    case 'htm':
+    case 'vue':
+    case 'svelte':
+      return html();
+    case 'css':
+    case 'scss':
+    case 'sass':
+    case 'less':
+      return css();
+    case 'md':
+    case 'mdx':
+      return markdown();
+    case 'py':
+    case 'pyw':
+      return python();
+    case 'java':
+      return java();
+    case 'c':
+    case 'cpp':
+    case 'cxx':
+    case 'cc':
+    case 'h':
+    case 'hpp':
+    case 'hxx':
+      return cpp();
+    case 'go':
+      return go();
+    case 'rs':
+      return rust();
+    case 'php':
+      return php();
+    case 'xml':
+    case 'svg':
+      return xml();
+    case 'yaml':
+    case 'yml':
+      return yaml();
+    case 'sql':
+      return sql();
+    default:
+      return null;
+  }
 }
 
 export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
