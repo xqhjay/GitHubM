@@ -291,8 +291,8 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="hero-badge">
-        <span class="dot"></span> 最新版本 v1.0.387 · 2026-05-30
+      <div class="hero-badge" id="versionBadge">
+        <span class="dot"></span> 最新版本 v1.0.389 · 2026-06-01
       </div>
 
       <div class="hero-icon">
@@ -312,7 +312,7 @@
       </p>
 
       <div class="hero-actions">
-        <a href="https://github.com/qq5855144/GitHubM/releases/download/v1.0.387/github-manager-v1.0.387.apk" class="btn btn-primary" id="downloadBtn">
+        <a href="https://github.com/qq5855144/GitHubM/releases/download/v1.0.389/github-manager-v1.0.389.apk" class="btn btn-primary" id="downloadBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           下载 Android APK
         </a>
@@ -323,9 +323,9 @@
       </div>
 
       <div class="hero-meta">
-        <span>📦 v1.0.387</span>
+        <span id="metaVersion">📦 v1.0.389</span>
         <span>📱 Android 6.0+</span>
-        <span>📏 4.4 MB</span>
+        <span id="metaSize">📏 4.4 MB</span>
         <span>🔓 开源 MIT</span>
       </div>
     </div>
@@ -390,9 +390,9 @@
       <div class="cta">
         <h2>🎉 立即下载 GitHubM</h2>
         <p>支持 Android 6.0 及以上版本。开源免费，持续更新。</p>
-        <a href="https://github.com/qq5855144/GitHubM/releases/download/v1.0.387/github-manager-v1.0.387.apk" class="btn btn-primary" style="font-size:1rem;padding:1rem 2.5rem">
+        <a href="https://github.com/qq5855144/GitHubM/releases/download/v1.0.389/github-manager-v1.0.389.apk" class="btn btn-primary" style="font-size:1rem;padding:1rem 2.5rem" id="downloadBtnBottom">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:22px;height:22px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          下载 APK (v1.0.387 · 4.4 MB)
+          下载 APK (v1.0.389 · 4.4 MB)
         </a>
         <p style="margin-top:1rem;font-size:.85rem;color:var(--muted)">
           也可以前往 <a href="https://github.com/qq5855144/GitHubM/releases" style="color:var(--accent2)">GitHub Releases</a> 查看更多版本
@@ -426,6 +426,43 @@
         btn.style.animation = 'fadeInUp .6s ease forwards, pulse 2s infinite';
       }
     }
+
+    // 动态获取 GitHub 最新 Release
+    fetch('https://api.github.com/repos/qq5855144/GitHubM/releases/latest')
+      .then(response => response.json())
+      .then(data => {
+        if (data && data.tag_name) {
+          const version = data.tag_name;
+          const date = data.published_at ? data.published_at.split('T')[0] : '';
+          const apkAsset = data.assets && data.assets.find(a => a.name.endsWith('.apk'));
+          
+          if (apkAsset) {
+            const sizeMB = (apkAsset.size / (1024 * 1024)).toFixed(1);
+            const downloadUrl = apkAsset.browser_download_url;
+            
+            // 更新页面元素
+            const badge = document.getElementById('versionBadge');
+            if (badge) badge.innerHTML = '<span class="dot"></span> 最新版本 ' + version + (date ? ' · ' + date : '');
+            
+            const metaVersion = document.getElementById('metaVersion');
+            if (metaVersion) metaVersion.innerHTML = '📦 ' + version;
+            
+            const metaSize = document.getElementById('metaSize');
+            if (metaSize) metaSize.innerHTML = '📏 ' + sizeMB + ' MB';
+            
+            // 更新下载链接
+            const btn1 = document.getElementById('downloadBtn');
+            if (btn1) btn1.href = downloadUrl;
+            
+            const btn2 = document.getElementById('downloadBtnBottom');
+            if (btn2) {
+              btn2.href = downloadUrl;
+              btn2.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:22px;height:22px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载 APK (' + version + ' · ' + sizeMB + ' MB)';
+            }
+          }
+        }
+      })
+      .catch(err => console.error('获取最新 Release 失败:', err));
   </script>
 
 </body>
