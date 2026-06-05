@@ -8,7 +8,8 @@
     "lint": "tsgo -p tsconfig.check.json; npx biome lint; .rules/check.sh;npx tailwindcss -i ./src/index.css -o /dev/null 2>&1 | grep -E '^(CssSyntaxError|Error):.*' || true;.rules/testBuild.sh",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -105,6 +106,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
     "@tailwindcss/container-queries": "^0.1.1",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/cli": "^2.11.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/bmapgl": "^0.0.7",
