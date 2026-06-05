@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-tauri:
     strategy:
@@ -49,6 +52,7 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: "--max_old_space_size=6144"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'GitHub Manager PC ${{ github.ref_name }}'
