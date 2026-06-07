@@ -82,8 +82,12 @@ object FastDownloader {
 
             while (hops < 5) {
                 val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                    if (currentToken.isNotBlank()) {
+                    val host = URL(currentUrl).host
+                    if (currentToken.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
                         setRequestProperty("Authorization", "Bearer $currentToken")
+                    }
+                    if (host == "api.github.com") {
+                        setRequestProperty("Accept", "application/octet-stream")
                     }
                     setRequestProperty("User-Agent", "GitHub Manager Android/FastDownloader")
                     instanceFollowRedirects = false
@@ -224,7 +228,13 @@ object FastDownloader {
         while (retryCount < maxRetries) {
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
+                    val host = URL(url).host
+                    if (token.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
+                        setRequestProperty("Authorization", "Bearer $token")
+                    }
+                    if (host == "api.github.com") {
+                        setRequestProperty("Accept", "application/octet-stream")
+                    }
                     setRequestProperty("Range", "bytes=$currentStart-$end")
                     setRequestProperty("User-Agent", "GitHub Manager Android/FastDownloader")
                     connectTimeout = 20000
@@ -256,7 +266,13 @@ object FastDownloader {
 
     private fun downloadSingle(url: String, token: String, file: File, totalLength: Long, onProgress: (Long, Long) -> Unit) {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
+            val host = URL(url).host
+            if (token.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
+                setRequestProperty("Authorization", "Bearer $token")
+            }
+            if (host == "api.github.com") {
+                setRequestProperty("Accept", "application/octet-stream")
+            }
             setRequestProperty("User-Agent", "GitHub Manager Android/FastDownloader")
             connectTimeout = 20000
             readTimeout = 20000

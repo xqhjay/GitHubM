@@ -1490,6 +1490,7 @@ export interface GitHubRelease {
 }
 
 export interface GitHubReleaseAsset {
+  url: string;
   id: number;
   name: string;
   label: string | null;

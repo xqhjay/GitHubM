@@ -77,7 +77,7 @@ function formatBytes(bytes: number): string {
  *   ✅ window.open 是浏览器原生导航，不走 CORS 检查，由浏览器自身处理跳转与下载。
  *      公开仓库无需登录即可下载；私有仓库需在浏览器中登录 GitHub.com。
  */
-async function downloadWithAuth(url: string, filename: string): Promise<void> {
+async function downloadWithAuth(asset: { url: string; browser_download_url: string; name: string }): Promise<void> {
   const token = getToken();
   if (!token) {
     toast.error(i18n.t('请先登录后再下载'));
@@ -87,14 +87,16 @@ async function downloadWithAuth(url: string, filename: string): Promise<void> {
   // Android WebView 原生下载（携带 Token，支持私有仓库）
   const bridge = (window as unknown as { AndroidBridge?: { downloadFile?: (u: string, f: string, t: string) => void } }).AndroidBridge;
   if (bridge?.downloadFile) {
-    bridge.downloadFile(url, filename, token);
-    toast.success(`开始下载 ${filename}`);
+    // 对于原生端，使用 asset.url (api.github.com) 而非 browser_download_url，
+    // 这样能够支持传入 token 鉴权，实现私有仓库产物下载。
+    bridge.downloadFile(asset.url, asset.name, token);
+    toast.success(`开始下载 ${asset.name}`);
     return;
   }
 
   // 浏览器：原生导航下载，绕过 CORS 重定向限制
-  window.open(url, '_blank', 'noopener,noreferrer');
-  toast.success(`已在新标签页中打开 ${filename} 的下载链接`);
+  window.open(asset.browser_download_url, '_blank', 'noopener,noreferrer');
+  toast.success(`已在新标签页中打开 ${asset.name} 的下载链接`);
 }
 
 function AssetItem({ asset }: { asset: GitHubReleaseAsset }) {
@@ -103,7 +105,7 @@ function AssetItem({ asset }: { asset: GitHubReleaseAsset }) {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      await downloadWithAuth(asset.browser_download_url, asset.name);
+      await downloadWithAuth(asset);
     } finally {
       setDownloading(false);
     }
@@ -198,7 +200,11 @@ function ReleaseItem({
                 disabled={dlZip}
                 onClick={async () => {
                   setDlZip(true);
-                  await downloadWithAuth(release.zipball_url!, `${release.tag_name}-source.zip`);
+                  await downloadWithAuth({
+                    url: release.zipball_url!,
+                    browser_download_url: release.zipball_url!,
+                    name: `${release.tag_name}-source.zip`
+                  });
                   setDlZip(false);
                 }}
               >
@@ -216,7 +222,11 @@ function ReleaseItem({
                 disabled={dlTar}
                 onClick={async () => {
                   setDlTar(true);
-                  await downloadWithAuth(release.tarball_url!, `${release.tag_name}-source.tar.gz`);
+                  await downloadWithAuth({
+                    url: release.tarball_url!,
+                    browser_download_url: release.tarball_url!,
+                    name: `${release.tag_name}-source.tar.gz`
+                  });
                   setDlTar(false);
                 }}
               >
