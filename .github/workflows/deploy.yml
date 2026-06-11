@@ -71,8 +71,13 @@ jobs:
           node-version: 22
           cache: pnpm       # pnpm store 缓存；首次约 40s，缓存命中后约 8s
 
+      - name: 移除平台私有依赖（避免 Actions 安装失败）
+        run: |
+          npm pkg delete dependencies.miaoda-react-devkit || true
+          npm pkg delete devDependencies.miaoda-react-devkit || true
+
       - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: 构建 Web 应用（注入版本号）
         run: |
