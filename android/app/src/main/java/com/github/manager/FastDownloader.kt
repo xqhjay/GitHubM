@@ -85,7 +85,7 @@ object FastDownloader {
                     if (currentToken.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
                         setRequestProperty("Authorization", "Bearer $currentToken")
                     }
-                    if (host == "api.github.com") {
+                    if (host == "api.github.com" && currentUrl.contains("/releases/assets/")) {
                         setRequestProperty("Accept", "application/octet-stream")
                     }
                     setRequestProperty("User-Agent", "GitHub Manager Android/FastDownloader")
@@ -316,7 +316,7 @@ object FastDownloader {
                     if (token.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    if (host == "api.github.com") {
+                    if (host == "api.github.com" && url.contains("/releases/assets/")) {
                         setRequestProperty("Accept", "application/octet-stream")
                     }
                     setRequestProperty("Range", "bytes=$currentStart-$end")
@@ -370,7 +370,7 @@ object FastDownloader {
                     if (token.isNotBlank() && (host == "api.github.com" || host == "raw.githubusercontent.com")) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    if (host == "api.github.com") {
+                    if (host == "api.github.com" && url.contains("/releases/assets/")) {
                         setRequestProperty("Accept", "application/octet-stream")
                     }
                     if (currentStart > 0 && totalLength > 0) {
