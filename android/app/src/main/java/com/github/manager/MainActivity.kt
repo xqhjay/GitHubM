@@ -140,9 +140,7 @@ class MainActivity : AppCompatActivity() {
     ) { granted ->
         if (granted) {
             Toast.makeText(this, "准备加速下载：$pendingDownloadFileName", Toast.LENGTH_SHORT).show()
-            lifecycleScope.launch {
-                FastDownloader.download(this@MainActivity, pendingDownloadUrl, pendingDownloadFileName, pendingDownloadToken)
-            }
+            startDownloadService(pendingDownloadUrl, pendingDownloadFileName, pendingDownloadToken)
         } else {
             Toast.makeText(this, "存储权限被拒绝，无法保存文件", Toast.LENGTH_LONG).show()
         }
@@ -1197,8 +1195,21 @@ class MainActivity : AppCompatActivity() {
         }
         
         Toast.makeText(this, "准备加速下载：$fileName", Toast.LENGTH_SHORT).show()
-        kotlinx.coroutines.GlobalScope.launch {
-            FastDownloader.download(applicationContext, url, fileName, token)
+        startDownloadService(url, fileName, token)
+    }
+
+    /** 启动前台下载服务，确保 APP 退到后台后下载不中断 */
+    private fun startDownloadService(url: String, fileName: String, token: String) {
+        val intent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_START
+            putExtra("url", url)
+            putExtra("fileName", fileName)
+            putExtra("token", token)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
         }
     }
 
