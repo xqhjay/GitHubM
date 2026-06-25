@@ -106,9 +106,9 @@ function MobileBottomNav() {
   if (isInAndroidApp) return null;
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-sidebar border-t border-border
-                    flex items-center h-16 safe-area-inset-bottom"
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-sidebar border-t border-border"
          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="flex items-center justify-around h-16">
       {bottomTabs.map((tab) => {
         const isActive =
           tab.path === '/'
@@ -120,7 +120,7 @@ function MobileBottomNav() {
             key={tab.path}
             type="button"
             className={cn(
-              'flex-1 flex flex-col items-center justify-center gap-0.5 h-full',
+              'flex-1 flex flex-col items-center justify-center gap-1 h-full',
               'transition-colors duration-150',
               isActive
                 ? 'text-primary'
@@ -133,6 +133,7 @@ function MobileBottomNav() {
           </button>
         );
       })}
+      </div>
     </nav>
   );
 }
