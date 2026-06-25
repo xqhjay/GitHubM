@@ -120,17 +120,12 @@ jobs:
   deploy-pages:
     name: 部署到 GitHub Pages
     needs: build-web
-  # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
-  deploy-pages:
-    name: 部署到 GitHub Pages
-    needs: build-web
     if: success() && needs.build-web.result == 'success'
 
     steps:
       - name: 部署到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
   # ── Job 3：构建签名 Release APK 并发布 ────────────────────────
   build-apk:
     name: 构建 Android APK 并发布 Release
