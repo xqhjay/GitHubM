@@ -119,6 +119,7 @@ jobs:
 
   # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
   deploy-pages:
+    runs-on: ubuntu-latest
     name: 部署到 GitHub Pages
     needs: build-web
     if: success() && needs.build-web.result == 'success'
