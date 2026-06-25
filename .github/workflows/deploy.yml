@@ -110,6 +110,7 @@ jobs:
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
+        continue-on-error: true  # 仓库未启用 Pages 时允许继续构建 APK
 
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3
@@ -118,6 +119,7 @@ jobs:
 
   # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
   deploy-pages:
+    runs-on: ubuntu-latest
     name: 部署到 GitHub Pages
     needs: build-web
     if: success() && needs.build-web.result == 'success'
@@ -126,6 +128,7 @@ jobs:
       - name: 部署到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
   # ── Job 3：构建签名 Release APK 并发布 ────────────────────────
   build-apk:
     name: 构建 Android APK 并发布 Release
