@@ -108,17 +108,15 @@ jobs:
           path: dist
           retention-days: 1
 
-      - name: 配置 GitHub Pages\n        uses: actions/configure-pages@v5\n        continue-on-error: true  # 仓库未启用 Pages 时允许继续构建 APK
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true  # 仓库未启用 Pages 时允许继续构建 APK
 
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
-  # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
-  deploy-pages:
-    name: 部署到 GitHub Pages
-    needs: build-web
   # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
   deploy-pages:
     name: 部署到 GitHub Pages
