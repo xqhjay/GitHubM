@@ -120,7 +120,7 @@ function MobileBottomNav() {
             key={tab.path}
             type="button"
             className={cn(
-              'flex-1 flex flex-col items-center justify-center gap-1 h-full',
+              'flex-1 flex flex-col items-center justify-center gap-0.5 h-full',
               'transition-colors duration-150',
               isActive
                 ? 'text-primary'
@@ -133,6 +133,7 @@ function MobileBottomNav() {
           </button>
         );
       })}
+      </div>
     </nav>
   );
 }
