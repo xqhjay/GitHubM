@@ -109,25 +109,23 @@ jobs:
           retention-days: 1
 
       - name: 配置 GitHub Pages
-        id: configure-pages
         uses: actions/configure-pages@v5
-        continue-on-error: true
 
       - name: 上传 Pages 产物
-        if: steps.configure-pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-
 
   # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
   deploy-pages:
     name: 部署到 GitHub Pages
     needs: build-web
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # ── Job 2：部署到 GitHub Pages ─────────────────────────────────
+  deploy-pages:
+    name: 部署到 GitHub Pages
+    needs: build-web
+    if: success() && needs.build-web.result == 'success'
+
     steps:
       - name: 部署到 GitHub Pages
         id: deployment
