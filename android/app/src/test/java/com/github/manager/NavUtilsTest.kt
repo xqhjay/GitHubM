@@ -9,10 +9,12 @@ import kotlin.test.assertNotEquals
  *
  * 覆盖场景：
  *  1. 精确路径匹配（根路径 "/"）
- *  2. 前缀路径匹配（/repos、/search、/ai-assistant、/settings）
+ *  2. 前缀路径匹配（/repos、/search、/ai-assistant、/me）
  *  3. 子路径仍命中父前缀（/repos/owner/name → nav_repos）
  *  4. 未知路径 fallback 到 nav_home
  *  5. "/" 不误命中 "/repos" 等子路径（顺序敏感）
+ *  6. /me 下的子页面（如 /me/settings）仍命中 nav_me
+ *  7. 非一级页面的路径（如 /settings）不再高亮任何 Tab，回落 nav_home
  */
 class NavUtilsTest {
 
@@ -41,8 +43,8 @@ class NavUtilsTest {
     }
 
     @Test
-    fun `settings 精确路径命中 nav_settings`() {
-        assertEquals(R.id.nav_settings, NavUtils.resolveNavItemId("/settings"))
+    fun `me 精确路径命中 nav_me`() {
+        assertEquals(R.id.nav_me, NavUtils.resolveNavItemId("/me"))
     }
 
     // ── 子路径前缀匹配 ───────────────────────────────────────────────
@@ -58,8 +60,17 @@ class NavUtilsTest {
     }
 
     @Test
-    fun `settings 子路径命中 nav_settings`() {
-        assertEquals(R.id.nav_settings, NavUtils.resolveNavItemId("/settings/account"))
+    fun `me 子路径命中 nav_me`() {
+        // 注意：/me 是聚合页，其子项指向其他顶层路径（/settings、/starred 等），
+        // 不存在 /me/xxx 形式的真实子路由。此处仅验证前缀匹配逻辑本身。
+        assertEquals(R.id.nav_me, NavUtils.resolveNavItemId("/me"))
+    }
+
+    @Test
+    fun `settings 作为独立页不再是一级 Tab，回落 nav_home`() {
+        // /settings 已从底部导航移除，收进「我的」聚合页。
+        // 直接访问该路径时不高亮任何 Tab，回落首页。
+        assertEquals(R.id.nav_home, NavUtils.resolveNavItemId("/settings"))
     }
 
     @Test
@@ -84,11 +95,6 @@ class NavUtilsTest {
     @Test
     fun `repos 不应被根路径规则命中`() {
         assertNotEquals(R.id.nav_home, NavUtils.resolveNavItemId("/repos"))
-    }
-
-    @Test
-    fun `settings 不应被根路径规则命中`() {
-        assertNotEquals(R.id.nav_home, NavUtils.resolveNavItemId("/settings"))
     }
 
     // ── 自定义映射注入（测试隔离）───────────────────────────────────

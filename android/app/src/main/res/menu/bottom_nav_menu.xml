@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  底部导航菜单 —— 与 src/lib/navigation.ts 的 PRIMARY_TABS 必须保持一致。
+  顺序：首页 / 仓库 / 搜索 / AI / 我的
+  同步检查：node scripts/check-nav-sync.mjs（CI 会运行，漂移即失败）
+-->
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item
@@ -12,18 +17,18 @@
         android:title="仓库" />
 
     <item
-        android:id="@+id/nav_ai"
-        android:icon="@drawable/ic_nav_ai"
-        android:title="AI助手" />
-
-    <item
         android:id="@+id/nav_search"
         android:icon="@drawable/ic_nav_search"
         android:title="搜索" />
 
     <item
-        android:id="@+id/nav_settings"
-        android:icon="@drawable/ic_nav_settings"
+        android:id="@+id/nav_ai"
+        android:icon="@drawable/ic_nav_ai"
+        android:title="AI助手" />
+
+    <item
+        android:id="@+id/nav_me"
+        android:icon="@drawable/ic_nav_me"
         android:title="我的" />
 
 </menu>

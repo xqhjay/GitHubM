@@ -3,28 +3,17 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Home,
-  BookOpen,
   Bell,
-  Search,
   Settings,
   Menu,
   X,
   LogOut,
   ChevronDown,
-  Activity,
-  Code2,
-  Package2,
-  Users,
-  Download,
   Sun,
   Moon,
   Monitor,
   PanelLeftClose,
   PanelLeftOpen,
-  User,
-  Braces,
-  Sparkles,
   Languages,
   LayoutGrid,
 } from 'lucide-react';
@@ -46,6 +35,7 @@ import { useTranslationStore } from '@/stores/translationStore';
 import { viewportTranslator } from '@/lib/auto-translator';
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { SIDEBAR_ITEMS, PRIMARY_TABS, isNavActive } from '@/lib/navigation';
 import i18n from "@/i18n";
 
 // 初始化翻译服务组件
@@ -79,41 +69,15 @@ function AppLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-interface NavItem {
-  label: string;
-  path: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-const navItems: NavItem[] = [
-  { label: i18n.t('首页'), path: '/', icon: Home },
-  { label: i18n.t('仓库'), path: '/repos', icon: BookOpen },
-  { label: i18n.t('通知'), path: '/notifications', icon: Bell },
-  { label: i18n.t('搜索'), path: '/search', icon: Search },
-  { label: i18n.t('活动'), path: '/activity', icon: Activity },
-  { label: 'Gists', path: '/gists', icon: Code2 },
-  { label: 'Packages', path: '/packages', icon: Package2 },
-  { label: i18n.t('账号管理'), path: '/accounts', icon: Users },
-  { label: i18n.t('数据导出'), path: '/export', icon: Download },
-  { label: 'GraphQL', path: '/graphql-playground', icon: Braces },
-  { label: i18n.t('AI 助手'), path: '/ai-assistant', icon: Sparkles },
-  { label: '全部功能', path: '/more', icon: LayoutGrid },
-];
-
 const themeIcons: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
   light: Sun,
   dark: Moon,
   system: Monitor,
 };
 
-// 移动端底部 Tab 导航（WebView APK 友好，5 个核心入口）
-const bottomTabs = [
-  { label: i18n.t('首页'),  path: '/',             icon: Home },
-  { label: i18n.t('仓库'),  path: '/repos',        icon: BookOpen },
-  { label: 'AI',   path: '/ai-assistant', icon: Sparkles },
-  { label: i18n.t('通知'),  path: '/notifications', icon: Bell },
-  { label: i18n.t('我的'),  path: '/settings',     icon: User },
-];
+// 导航定义统一来自 src/lib/navigation.ts（单一来源）。
+// 桌面侧边栏用 SIDEBAR_ITEMS，移动端底部 Tab 用 PRIMARY_TABS。
+// 修改导航请改 navigation.ts，并同步 NavUtils.kt（scripts/check-nav-sync.mjs 会校验）。
 
 function MobileBottomNav() {
   const location = useLocation();
@@ -127,11 +91,8 @@ function MobileBottomNav() {
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-sidebar border-t border-border
                     flex items-center h-16 safe-area-inset-bottom"
          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {bottomTabs.map((tab) => {
-        const isActive =
-          tab.path === '/'
-            ? location.pathname === '/'
-            : location.pathname.startsWith(tab.path);
+      {PRIMARY_TABS.map((tab) => {
+        const isActive = isNavActive(tab, location.pathname);
         const Icon = tab.icon;
         return (
           <button
@@ -147,7 +108,7 @@ function MobileBottomNav() {
             onClick={() => navigate(tab.path)}
           >
             <Icon className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] leading-none font-medium">{tab.label}</span>
+            <span className="text-[10px] leading-none font-medium">{i18n.t(tab.label)}</span>
           </button>
         );
       })}
@@ -215,9 +176,8 @@ function SidebarNav({
 
       {/* 导航菜单 */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path ||
-            (item.path !== '/' && location.pathname.startsWith(item.path));
+        {SIDEBAR_ITEMS.map((item) => {
+          const isActive = isNavActive(item, location.pathname);
           const Icon = item.icon;
 
           return collapsed ? (
@@ -229,14 +189,14 @@ function SidebarNav({
                   className={cn(
                     'flex items-center justify-center w-full h-9 rounded-lg transition-colors',
                     isActive
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                      ? 'bg-primary text-primary-foreground shadow-xs'
+                      : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                   )}
                 >
                   <Icon className="w-4 h-4" />
                 </Link>
               </TooltipTrigger>
-              <TooltipContent side="right" className="font-medium">{item.label}</TooltipContent>
+              <TooltipContent side="right" className="font-medium">{i18n.t(item.label)}</TooltipContent>
             </Tooltip>
           ) : (
             <Link
@@ -244,14 +204,16 @@ function SidebarNav({
               to={item.path}
               onClick={onClose}
               className={cn(
-                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                'relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                 isActive
-                  ? 'bg-primary/20 text-primary font-medium'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                  // 激活态：实心品牌底 + 白字，对比度 ≥7:1。
+                  // 原方案 bg-primary/20 + text-primary 在浅紫侧边栏上几乎不可辨。
+                  ? 'bg-primary text-primary-foreground font-medium shadow-xs'
+                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
-              <span>{item.label}</span>
+              <span className="truncate">{i18n.t(item.label)}</span>
             </Link>
           );
         })}
@@ -365,10 +327,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     setTheme(next);
   };
 
-  const currentNavItem = navItems.find(
-    (item) =>
-      location.pathname === item.path ||
-      (item.path !== '/' && location.pathname.startsWith(item.path))
+  const currentNavItem = SIDEBAR_ITEMS.find((item) =>
+    isNavActive(item, location.pathname)
   );
 
   const handleLogout = () => {
@@ -418,7 +378,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           {/* 当前页面标题 */}
           <div className="flex-1 min-w-0">
             <span className="text-sm font-semibold text-foreground truncate">
-              {currentNavItem?.label || i18n.t('GitHub 管理器')}
+              {currentNavItem ? i18n.t(currentNavItem.label) : i18n.t('GitHub 管理器')}
             </span>
           </div>
 
@@ -543,6 +503,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <main className={`flex-1 overflow-x-hidden ${typeof window !== 'undefined' && !!(window as unknown as { AndroidBridge?: unknown }).AndroidBridge ? '' : 'pb-16'} lg:pb-0`}>
           {children}
         </main>
+
+        {/* Web 移动端底部导航（lg 以下显示）。
+            此前 MobileBottomNav 已定义但从未挂载 —— 导致手机上
+            既没有底部导航，<main> 又留出了 64px 空白。
+            APK 内由原生 BottomNavigationView 接管，本组件自行返回 null。 */}
+        <MobileBottomNav />
       </div>
     </div>
   );

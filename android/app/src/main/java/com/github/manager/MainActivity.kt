@@ -70,17 +70,13 @@ class MainActivity : AppCompatActivity() {
 
     // ── 底部导航：hash 路径 → 菜单项 ID 映射 ───────────────────────
     /**
-     * HashRouter 路径前缀 → BottomNavigationView 菜单项 ID。
-     * 使用前缀匹配，确保仓库详情等子页面也能正确高亮「仓库」Tab。
-     * 顺序很重要：精确路径（"/"）必须排在最后，避免被子路径误命中。
+     * 路径映射的唯一来源是 [NavUtils.NAV_PATH_MAP]。
+     *
+     * 此前此处存在一份完整副本，与 NavUtils 各自维护，已发生漂移
+     * （NavUtils 指向 /settings，此处已改 /me，两处不一致）。
+     * 现统一引用 NavUtils，避免再次分叉。
      */
-    private val navPathMap = linkedMapOf(
-        "/repos"         to R.id.nav_repos,
-        "/search"        to R.id.nav_search,
-        "/ai-assistant"  to R.id.nav_ai,
-        "/settings"      to R.id.nav_settings,
-        "/"              to R.id.nav_home,
-    )
+    private val navPathMap: LinkedHashMap<String, Int> = NavUtils.NAV_PATH_MAP
     /** 当前激活的菜单项，避免重复导航 */
     private var currentNavItemId: Int = R.id.nav_home
     /** 当前底部导航栏选中色（由 notifyAccent 更新，随主题色方案变化） */

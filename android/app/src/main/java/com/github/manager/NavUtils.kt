@@ -14,12 +14,15 @@ object NavUtils {
     /**
      * HashRouter 路径前缀 → BottomNav 菜单项 ID。
      * 使用 linkedMapOf 保证插入顺序（"/" 必须最后匹配）。
+     *
+     * 与 src/lib/navigation.ts 的 PRIMARY_TABS 一一对应。
+     * 同步检查：node scripts/check-nav-sync.mjs（CI 运行，漂移即失败）
      */
     val NAV_PATH_MAP: LinkedHashMap<String, Int> = linkedMapOf(
         "/repos"        to R.id.nav_repos,
         "/search"       to R.id.nav_search,
         "/ai-assistant" to R.id.nav_ai,
-        "/settings"     to R.id.nav_settings,
+        "/me"           to R.id.nav_me,
         "/"             to R.id.nav_home,
     )
 
