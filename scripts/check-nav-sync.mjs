@@ -91,7 +91,7 @@ if (errors.length) {
   console.error('\n请同步修改以下两处后重试：');
   console.error('  • src/lib/navigation.ts  (PRIMARY_TABS / androidId)');
   console.error('  • android/.../NavUtils.kt (NAV_PATH_MAP)');
-  console.error('  • android/app/src/main/res/menu/menu_nav.xml (菜单项声明)');
+  console.error('  • android/app/src/main/res/menu/bottom_nav_menu.xml (菜单项声明)');
   process.exit(1);
 }
 
