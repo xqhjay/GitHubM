@@ -2,6 +2,8 @@
 
 ast-grep scan -r .rules/SelectItem.yml
 
+ast-grep scan -r .rules/no-hardcoded-palette-colors.yml
+
 ast-grep scan -r .rules/contrast.yml
 
 ast-grep scan -r .rules/supabase-google-sso.yml

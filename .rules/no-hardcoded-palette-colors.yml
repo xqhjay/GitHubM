@@ -1,0 +1,41 @@
+id: no-hardcoded-palette-colors
+language: Tsx
+severity: warning
+message: |
+  检测到硬编码的 Tailwind 调色板色值（如 text-amber-500 / bg-green-600）。
+
+  请改用设计 token，这样切换主题/调整配色时一处生效：
+    - 品牌色      →   primary / accent
+    - 成功/完成   →   status-success（或 success）
+    - 进行中/等待 →   status-running
+    - 警告        →   status-warning（或 warning）
+    - 失败/危险   →   status-error（或 destructive）
+    - 空闲/取消   →   status-idle
+    - 中性文字    →   foreground / muted-foreground
+    - 边框        →   border
+
+  已知的有意例外（见各自文件内注释，不会被本规则报告）：
+    1. src/components/common/FileIcon.tsx  — 文件类型约定色（.ts 蓝 / .json 黄 …），
+       表达「这是什么文件」，不随主题变化。
+    2. src/components/code/FileTree.tsx    — 搜索命中 <mark> 高亮，沿用原生黄色语义。
+    3. src/pages/CodeBrowserPage.tsx       — 移动端代码编辑器信息栏，沿用 VSCode 外观。
+    4. src/components/ai/** 与 src/pages/AiAssistantPage.tsx
+                                           — AI 面板的运行态状态标记，
+       使用独立色相以区分「执行中 / 成功 / 失败」，待后续统一到 status-* token。
+    5. src/tests/**                        — 测试断言中的期望值字符串。
+
+  FILE_TYPE_COLORS 常量内的色值是刻意保留的，不要「顺手 token 化」。
+rule:
+  any:
+    - pattern: className={$A}
+    - pattern: className=$A
+constraints:
+  A:
+    regex: '(bg|text|border|ring|from|to|via|fill|stroke|divide|outline|shadow|accent|caret|decoration|placeholder|marker)-(red|blue|green|yellow|purple|pink|indigo|violet|slate|gray|zinc|neutral|stone|orange|amber|teal|cyan|sky|emerald|lime|rose|fuchsia)-[0-9]{2,3}'
+ignores:
+  - src/components/common/FileIcon.tsx
+  - src/components/code/FileTree.tsx
+  - src/pages/CodeBrowserPage.tsx
+  - src/components/ai/**
+  - src/pages/AiAssistantPage.tsx
+  - src/tests/**
