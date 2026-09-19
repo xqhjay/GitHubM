@@ -9,7 +9,7 @@
     -->
     <color name="main_bg">#f8f8fb</color>              <!-- WebView 背景色（对应 Web 端 background 变量） -->
     <color name="sidebar_bg">#f6f4fa</color>           <!-- BottomNav 背景色（对应 Web 端 sidebar-background 变量） -->
-    <color name="nav_unselected">#64748b</color>       <!-- 底部导航未选中色（对应 Web 端 muted-foreground 变量） -->
+    <color name="nav_unselected">#475569</color>       <!-- 底部导航未选中色（对应 Web 端 muted-foreground；对比度 6.94:1，原 #64748b 仅 4.36:1 未达 AA） -->
 
     <!-- 底部导航栏颜色 -->
     <color name="bottom_nav_background">@color/sidebar_bg</color>
