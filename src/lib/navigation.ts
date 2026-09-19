@@ -71,7 +71,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'repos',  label: '仓库', path: '/repos',        icon: BookOpen, desc: '创建/删除/编辑仓库', primary: true, androidId: 'nav_repos',  sidebar: true },
   { id: 'search', label: '搜索', path: '/search',       icon: Search,   desc: '全局搜索仓库/代码/用户', primary: true, androidId: 'nav_search', sidebar: true },
   { id: 'ai',     label: 'AI',   path: '/ai-assistant', icon: Sparkles, desc: 'AI 任务规划与执行', primary: true, androidId: 'nav_ai',    sidebar: true },
-  { id: 'me',     label: '我的', path: '/me',           icon: User,     desc: '账号 / 内容 / 工具 / 设置', primary: true, androidId: 'nav_DELIBERATE_DRIFT', sidebar: true,
+  { id: 'me',     label: '我的', path: '/me',           icon: User,     desc: '账号 / 内容 / 工具 / 设置', primary: true, androidId: 'nav_me', sidebar: true,
     // 「我的」是聚合页，以下页面由其收纳 —— 进入这些页面时「我的」Tab 保持高亮
     owns: ['/settings', '/accounts', '/starred', '/gists', '/export', '/upload',
            '/packages', '/graphql-playground', '/actions', '/follow', '/more',

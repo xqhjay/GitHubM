@@ -20,7 +20,6 @@ object NavUtils {
      */
     val NAV_PATH_MAP: LinkedHashMap<String, Int> = linkedMapOf(
         "/repos"        to R.id.nav_repos,
-        "/search"       to R.id.nav_search,
         "/ai-assistant" to R.id.nav_ai,
         "/me"           to R.id.nav_me,
         "/"             to R.id.nav_home,
