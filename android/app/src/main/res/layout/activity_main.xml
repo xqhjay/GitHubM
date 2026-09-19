@@ -36,13 +36,13 @@
 
         <!--
           ══ 底部导航容器 ═════════════════════════════════════════════
-          结构：顶部分割线 + BottomNavigationView（wrap_content）+ navBarSpacer
+          结构：顶部分割线 + BottomNavigationView（64dp）+ navBarSpacer
 
-          高度说明（labeled 模式）：
-            BottomNavigationView 高度由 M3 组件自身决定（wrap_content，约 80dp）。
-            此前硬编码 62dp 低于 M3 NavigationBarItemView 的内部布局需求，
-            导致子视图被压缩、label 上移压住图标（真机表现为文字与图标重叠）。
-            不再硬编码高度：M3 会按 icon + label + 内置间距自行排布。
+          高度说明（labeled 模式，紧凑规格）：
+            高度固定 64dp，介于 M3 默认的 80dp（过高、图标与文字间距大）
+            与历史值 62dp（过低、label 上移压住图标、真机表现为文字与图标重叠）之间。
+            app:itemPaddingTop/Bottom 各收至 6dp（M3 默认 8dp），
+            用于压缩图标与文字之间的间隙，配合 20dp 图标 + 10sp 文字。
 
           Active Indicator：
             透明色，选中状态仅通过图标/文字强调色区分，
@@ -69,7 +69,7 @@
                 android:id="@+id/bottomNav"
                 style="@style/Widget.Material3.BottomNavigationView"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="64dp"
                 android:background="@android:color/transparent"
                 app:menu="@menu/bottom_nav_menu"
                 app:itemIconTint="@color/bottom_nav_colors"
@@ -77,6 +77,8 @@
                 app:itemTextAppearanceActive="@style/BottomNavTextActive"
                 app:itemTextAppearanceInactive="@style/BottomNavTextInactive"
                 app:itemIconSize="20dp"
+                app:itemPaddingTop="6dp"
+                app:itemPaddingBottom="6dp"
                 app:itemActiveIndicatorStyle="@style/BottomNavActiveIndicator"
                 app:labelVisibilityMode="labeled"
                 app:elevation="0dp" />
