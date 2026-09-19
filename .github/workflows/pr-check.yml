@@ -6,7 +6,8 @@
 #   3. TypeScript 类型检查（tsc --noEmit）
 #   4. 单元测试（vitest）
 #   5. 导航定义同步检查（前端 PRIMARY_TABS vs Android NAV_PATH_MAP）
-#   6. 生产构建验证（确保 dist/ 产物正常生成）
+#   6. ast-grep 规则检查（.rules/check.sh，暂行观察模式，不阻断）
+#   7. 生产构建验证（确保 dist/ 产物正常生成）
 #
 # 本仓库为自用 fork，不经过 PR 流程，故同时监听 push，
 # 确保每次推送 main 都会跑一遍质量检查。
@@ -63,7 +64,16 @@ jobs:
       - name: 导航定义同步检查
         run: node scripts/check-nav-sync.mjs
 
-      # ── 步骤 5：生产构建验证 ────────────────────────────────────
+      # ── 步骤 5：ast-grep 规则门卡（暂行观察模式）───────────────
+      # 说明：.rules/check.sh 此前恒返回 0（缺陷已修复，见脚本注释）。
+      # 由于这些规则从未真正生效过，仓库中可能存在大量既有违规，
+      # 故先以"只报告不阻断"方式接入，用于确认规则工作正常并观察
+      # 违规规模。确认后应删除 continue-on-error，转为强制门卡。
+      - name: ast-grep 规则检查（观察模式）
+        continue-on-error: true
+        run: bash .rules/check.sh
+
+      # ── 步骤 6：生产构建验证 ────────────────────────────────────
       - name: 生产构建验证
         run: |
           # 注入占位环境变量，避免构建因缺少 .env 而失败

@@ -1,4 +1,8 @@
 packages: []
+# 允许 @ast-grep/cli 执行 postinstall 以就位原生二进制（.rules/check.sh 依赖）。
+# 注：该包不支持 MUSL，仅在 glibc（CI 的 ubuntu runner）上可用。
+allowBuilds:
+  '@ast-grep/cli': true
 catalog:
   "@react-three/drei": 9.122.0
   "@react-three/fiber": 8.18.0
