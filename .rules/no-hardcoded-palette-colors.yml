@@ -26,12 +26,17 @@ message: |
 
   FILE_TYPE_COLORS 常量内的色值是刻意保留的，不要「顺手 token 化」。
 rule:
-  any:
-    - pattern: className={$A}
-    - pattern: className=$A
-constraints:
-  A:
-    regex: '(bg|text|border|ring|from|to|via|fill|stroke|divide|outline|shadow|accent|caret|decoration|placeholder|marker)-(red|blue|green|yellow|purple|pink|indigo|violet|slate|gray|zinc|neutral|stone|orange|amber|teal|cyan|sky|emerald|lime|rose|fuchsia)-[0-9]{2,3}'
+  all:
+    - kind: jsx_attribute
+    - has:
+        kind: property_identifier
+        regex: '^className$'
+    # 用 descendant(string_fragment) 而非「直接子节点 string」，以覆盖
+    # className={`...`} 模板串与 className={cn("...")} 等常见写法。
+    - has:
+        stopBy: end
+        kind: string_fragment
+        regex: '(bg|text|border|ring|from|to|via|fill|stroke|divide|outline|shadow|accent|caret|decoration|placeholder|marker)-(red|blue|green|yellow|purple|pink|indigo|violet|slate|gray|zinc|neutral|stone|orange|amber|teal|cyan|sky|emerald|lime|rose|fuchsia)-[0-9]{2,3}'
 ignores:
   - src/components/common/FileIcon.tsx
   - src/components/code/FileTree.tsx
