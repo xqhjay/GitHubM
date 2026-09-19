@@ -2,7 +2,7 @@
 <!--
   LinearLayout（竖向）：
     - WebView：填充剩余空间，显示 Web 应用内容
-    - BottomNavigationView：固定在底部，高度 56dp，映射核心导航功能
+    - BottomNavigationView：固定在底部，高度由 M3 组件决定（wrap_content），映射核心导航功能
   splashOverlay 叠加于整个布局顶层，启动时遮盖初始化闪烁。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -36,14 +36,13 @@
 
         <!--
           ══ 底部导航容器 ═════════════════════════════════════════════
-          结构：顶部分割线 + BottomNavigationView（62dp，紧凑规格）+ navBarSpacer
+          结构：顶部分割线 + BottomNavigationView（wrap_content）+ navBarSpacer
 
-          高度说明（labeled 模式，紧凑版）：
-            图标区域                : 20dp
-            图标与文字间距          : 2dp
-            标签文字（10sp）        : ~13dp
-            上下内边距              : ~13dp（合计 ~27dp）
-            总计                   : 62dp
+          高度说明（labeled 模式）：
+            BottomNavigationView 高度由 M3 组件自身决定（wrap_content，约 80dp）。
+            此前硬编码 62dp 低于 M3 NavigationBarItemView 的内部布局需求，
+            导致子视图被压缩、label 上移压住图标（真机表现为文字与图标重叠）。
+            不再硬编码高度：M3 会按 icon + label + 内置间距自行排布。
 
           Active Indicator：
             透明色，选中状态仅通过图标/文字强调色区分，
@@ -70,7 +69,7 @@
                 android:id="@+id/bottomNav"
                 style="@style/Widget.Material3.BottomNavigationView"
                 android:layout_width="match_parent"
-                android:layout_height="62dp"
+                android:layout_height="wrap_content"
                 android:background="@android:color/transparent"
                 app:menu="@menu/bottom_nav_menu"
                 app:itemIconTint="@color/bottom_nav_colors"
