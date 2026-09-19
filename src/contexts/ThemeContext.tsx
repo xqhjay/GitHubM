@@ -17,6 +17,14 @@ export interface AccentScheme {
   darkPrimary: string;
   darkAccent: string;
   darkRing: string;
+  /**
+   * 实心主色背景专用亮度（承载白色文字，WCAG AA ≥4.5:1）。
+   * 浅色模式与 lightPrimary 同值；深色模式比 darkPrimary 暗约 6 个百分点，
+   * 因为深色模式下 darkPrimary 为「发光感」保持高亮度，作实心背景时白字不足。
+   * 由 .dark .bg-primary 规则路由，见 index.css 末尾。
+   */
+  lightPrimarySolid?: string;
+  darkPrimarySolid?: string;
   /** 用于预览的 hex 色（同时作为 Android theme-color 基准） */
   previewColor: string;
   /** Android 状态栏浅色背景下的深色变体（可选，默认用 previewColor） */
@@ -28,73 +36,87 @@ export const ACCENT_SCHEMES: AccentScheme[] = [
   {
     id: 'purple',
     label: i18n.t('紫罗兰'),
-    lightPrimary: '263 70% 58%',
-    lightAccent:  '258 88% 66%',
-    lightRing:    '263 70% 58%',
-    darkPrimary:  '263 72% 68%',
+    // 浅色：饱和 83%（原 70% 偏低，视觉发灰显旧），白底对比度 ≥4.5:1
+    lightPrimary: '262 83% 58%',   // #7C3BED
+    lightAccent:  '258 88% 50%',
+    lightRing:    '262 83% 58%',
+    // 深色：提高亮度产生发光感（Raycast 风格）
+    darkPrimary:  '265 89% 66%',   // #9B5BF5
     darkAccent:   '258 88% 74%',
-    darkRing:     '263 72% 68%',
-    previewColor: '#7c3aed',
-    lightThemeColor: '#6d28d9',
+    darkRing:     '265 89% 66%',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '265 89% 60%',
+    previewColor: '#7C3BED',
+    lightThemeColor: '#6D28D9',
   },
   {
     id: 'blue',
     label: i18n.t('海洋蓝'),
     lightPrimary: '217 91% 50%',
-    lightAccent:  '210 100% 56%',
+    lightAccent:  '210 100% 45%',
     lightRing:    '217 91% 50%',
     darkPrimary:  '217 91% 65%',
     darkAccent:   '210 100% 70%',
     darkRing:     '217 91% 65%',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '217 91% 53%',
     previewColor: '#1d6be3',
     lightThemeColor: '#1d4ed8',
   },
   {
     id: 'green',
     label: i18n.t('翠绿'),
-    lightPrimary: '142 71% 40%',
-    lightAccent:  '152 80% 42%',
-    lightRing:    '142 71% 40%',
+    lightPrimary: '142 71% 31%',
+    lightAccent:  '152 80% 29%',
+    lightRing:    '142 71% 31%',
     darkPrimary:  '142 65% 52%',
     darkAccent:   '152 72% 54%',
     darkRing:     '142 65% 52%',
-    previewColor: '#16a34a',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '142 65% 32%',
+    previewColor: '#178740',
     lightThemeColor: '#15803d',
   },
   {
     id: 'orange',
     label: i18n.t('暖橙'),
-    lightPrimary: '24 95% 50%',
-    lightAccent:  '32 95% 52%',
-    lightRing:    '24 95% 50%',
+    lightPrimary: '24 95% 39%',
+    lightAccent:  '32 95% 36%',
+    lightRing:    '24 95% 39%',
     darkPrimary:  '24 95% 62%',
     darkAccent:   '32 95% 64%',
     darkRing:     '24 95% 62%',
-    previewColor: '#f97316',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '24 95% 39%',
+    previewColor: '#C25105',
     lightThemeColor: '#ea580c',
   },
   {
     id: 'rose',
     label: i18n.t('玫瑰红'),
     lightPrimary: '346 77% 50%',
-    lightAccent:  '354 83% 57%',
+    lightAccent:  '354 83% 50%',
     lightRing:    '346 77% 50%',
     darkPrimary:  '346 77% 64%',
     darkAccent:   '354 83% 70%',
     darkRing:     '346 77% 64%',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '346 77% 52%',
     previewColor: '#e11d48',
     lightThemeColor: '#be123c',
   },
   {
     id: 'cyan',
     label: i18n.t('青碧'),
-    lightPrimary: '192 90% 40%',
-    lightAccent:  '186 88% 44%',
-    lightRing:    '192 90% 40%',
+    lightPrimary: '192 90% 32%',
+    lightAccent:  '186 88% 30%',
+    lightRing:    '192 90% 32%',
     darkPrimary:  '192 88% 54%',
     darkAccent:   '186 84% 58%',
     darkRing:     '192 88% 54%',
-    previewColor: '#0891b2',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '192 88% 33%',
+    previewColor: '#087E9B',
     lightThemeColor: '#0e7490',
   },
   // ── 新增色 ──────────────────────────────────────────────────────────────
@@ -107,116 +129,136 @@ export const ACCENT_SCHEMES: AccentScheme[] = [
     darkPrimary:  '239 84% 70%',
     darkAccent:   '245 88% 76%',
     darkRing:     '239 84% 70%',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '239 84% 60%',
     previewColor: '#4f46e5',
     lightThemeColor: '#4338ca',
   },
   {
     id: 'sky',
     label: i18n.t('天空蓝'),
-    lightPrimary: '199 89% 46%',
-    lightAccent:  '204 94% 50%',
-    lightRing:    '199 89% 46%',
+    lightPrimary: '199 89% 37%',
+    lightAccent:  '204 94% 40%',
+    lightRing:    '199 89% 37%',
     darkPrimary:  '199 89% 60%',
     darkAccent:   '204 94% 64%',
     darkRing:     '199 89% 60%',
-    previewColor: '#0ea5e9',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '199 89% 37%',
+    previewColor: '#0A7DB2',
     lightThemeColor: '#0284c7',
   },
   {
     id: 'emerald',
     label: i18n.t('祖母绿'),
-    lightPrimary: '160 84% 36%',
-    lightAccent:  '166 90% 38%',
-    lightRing:    '160 84% 36%',
+    lightPrimary: '160 84% 28%',
+    lightAccent:  '166 90% 27%',
+    lightRing:    '160 84% 28%',
     darkPrimary:  '160 80% 50%',
     darkAccent:   '166 86% 54%',
     darkRing:     '160 80% 50%',
-    previewColor: '#059669',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '160 80% 29%',
+    previewColor: '#0B835B',
     lightThemeColor: '#047857',
   },
   {
     id: 'teal',
     label: i18n.t('青绿'),
-    lightPrimary: '174 72% 38%',
-    lightAccent:  '178 76% 40%',
-    lightRing:    '174 72% 38%',
+    lightPrimary: '174 72% 30%',
+    lightAccent:  '178 76% 29%',
+    lightRing:    '174 72% 30%',
     darkPrimary:  '174 68% 52%',
     darkAccent:   '178 72% 56%',
     darkRing:     '174 68% 52%',
-    previewColor: '#0d9488',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '174 68% 30%',
+    previewColor: '#158479',
     lightThemeColor: '#0f766e',
   },
   {
     id: 'amber',
     label: i18n.t('琥珀'),
-    lightPrimary: '38 92% 48%',
-    lightAccent:  '45 96% 50%',
-    lightRing:    '38 92% 48%',
+    lightPrimary: '38 92% 33%',
+    lightAccent:  '45 96% 30%',
+    lightRing:    '38 92% 33%',
     darkPrimary:  '38 92% 60%',
     darkAccent:   '45 96% 64%',
     darkRing:     '38 92% 60%',
-    previewColor: '#d97706',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '38 92% 33%',
+    previewColor: '#A26907',
     lightThemeColor: '#b45309',
   },
   {
     id: 'pink',
     label: i18n.t('樱花粉'),
-    lightPrimary: '330 81% 54%',
-    lightAccent:  '336 84% 58%',
-    lightRing:    '330 81% 54%',
+    lightPrimary: '330 81% 49%',
+    lightAccent:  '336 84% 49%',
+    lightRing:    '330 81% 49%',
     darkPrimary:  '330 81% 68%',
     darkAccent:   '336 84% 72%',
     darkRing:     '330 81% 68%',
-    previewColor: '#ec4899',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '330 81% 49%',
+    previewColor: '#E2187D',
     lightThemeColor: '#db2777',
   },
   {
     id: 'violet',
     label: i18n.t('薰衣草'),
     lightPrimary: '280 68% 56%',
-    lightAccent:  '275 72% 62%',
+    lightAccent:  '275 72% 50%',
     lightRing:    '280 68% 56%',
     darkPrimary:  '280 68% 68%',
     darkAccent:   '275 72% 74%',
     darkRing:     '280 68% 68%',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '280 68% 57%',
     previewColor: '#8b5cf6',
     lightThemeColor: '#7c3aed',
   },
   {
     id: 'gold',
     label: i18n.t('金色'),
-    lightPrimary: '43 96% 42%',
-    lightAccent:  '48 98% 46%',
-    lightRing:    '43 96% 42%',
+    lightPrimary: '43 96% 30%',
+    lightAccent:  '48 98% 28%',
+    lightRing:    '43 96% 30%',
     darkPrimary:  '43 96% 58%',
     darkAccent:   '48 98% 62%',
     darkRing:     '43 96% 58%',
-    previewColor: '#ca8a04',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '43 96% 30%',
+    previewColor: '#966C03',
     lightThemeColor: '#a16207',
   },
   // ── 扩展色 ──────────────────────────────────────────────────────────────
   {
     id: 'coral',
     label: i18n.t('珊瑚橙'),
-    lightPrimary: '16 88% 50%',
-    lightAccent:  '22 92% 54%',
-    lightRing:    '16 88% 50%',
+    lightPrimary: '16 88% 44%',
+    lightAccent:  '22 92% 41%',
+    lightRing:    '16 88% 44%',
     darkPrimary:  '16 88% 64%',
     darkAccent:   '22 92% 68%',
     darkRing:     '16 88% 64%',
-    previewColor: '#f0572a',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '16 88% 44%',
+    previewColor: '#D3420D',
     lightThemeColor: '#d94420',
   },
   {
     id: 'lime',
     label: i18n.t('荧光绿'),
-    lightPrimary: '82 66% 38%',
-    lightAccent:  '90 70% 40%',
-    lightRing:    '82 66% 38%',
+    lightPrimary: '82 66% 30%',
+    lightAccent:  '90 70% 30%',
+    lightRing:    '82 66% 30%',
     darkPrimary:  '82 66% 54%',
     darkAccent:   '90 70% 58%',
     darkRing:     '82 66% 54%',
-    previewColor: '#65a30d',
+    // 实心块白字 ≥4.5:1（darkPrimary 作前景用，亮度更高）
+    darkPrimarySolid: '82 66% 30%',
+    previewColor: '#5A7F1A',
     lightThemeColor: '#4d7c0f',
   },
 ];
@@ -258,6 +300,13 @@ function applyAccentScheme(scheme: AccentScheme, resolved: 'dark' | 'light') {
   const root = document.documentElement;
   const isDark = resolved === 'dark';
   root.style.setProperty('--primary', isDark ? scheme.darkPrimary : scheme.lightPrimary);
+  // 实心主色背景：深色模式需比 --primary 更暗才能承载白字（WCAG AA）。
+  // 未显式提供时回退到 --primary，保证向后兼容。
+  root.style.setProperty(
+    '--primary-solid',
+    (isDark ? scheme.darkPrimarySolid : scheme.lightPrimarySolid)
+      ?? (isDark ? scheme.darkPrimary : scheme.lightPrimary)
+  );
   root.style.setProperty('--accent',  isDark ? scheme.darkAccent  : scheme.lightAccent);
   root.style.setProperty('--ring',    isDark ? scheme.darkRing    : scheme.lightRing);
   // sidebar-primary / sidebar-ring 同步

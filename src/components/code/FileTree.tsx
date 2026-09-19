@@ -180,6 +180,8 @@ function TreeNodeRow({
     return (
       <span>
         {item.name.slice(0, idx)}
+        {/* 搜索命中高亮：沿用 <mark> 的原生黄色语义（有意例外，不 token 化）。
+            改成品牌紫会与「已选中」状态混淆，降低命中可识别性。 */}
         <mark className="bg-yellow-400/40 text-foreground rounded-[2px]">
           {item.name.slice(idx, idx + filterText.length)}
         </mark>

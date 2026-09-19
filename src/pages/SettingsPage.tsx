@@ -900,7 +900,7 @@ export default function SettingsPage() {
                               {formatCostUsd(stat.costUsd)}
                             </span>
                             {priceInfo.isFree && stat.costUsd === 0 && (
-                              <span className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded font-medium">免费额度</span>
+                              <span className="text-[10px] bg-status-success/10 text-status-success px-1.5 py-0.5 rounded font-medium">免费额度</span>
                             )}
                             {priceInfo.isEstimated && (
                               <span className="text-[10px] bg-secondary text-muted-foreground px-1.5 py-0.5 rounded">估算</span>
@@ -1148,11 +1148,11 @@ export default function SettingsPage() {
               </div>
             )}
             {checkState === 'latest' && !updateInfo && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
-                <svg className="w-4 h-4 text-green-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-status-success/10 border border-status-success/20">
+                <svg className="w-4 h-4 text-status-success shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
-                <p className="text-xs text-green-700 dark:text-green-400 font-medium">已是最新版本</p>
+                <p className="text-xs text-status-success font-medium">已是最新版本</p>
               </div>
             )}
             {checkState === 'error' && (

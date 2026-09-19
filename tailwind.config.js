@@ -67,6 +67,13 @@ export default {
                 success: 'hsl(var(--success))',
                 warning: 'hsl(var(--warning))',
                 info: 'hsl(var(--info))',
+                status: {
+                    running: 'hsl(var(--status-running))',
+                    success: 'hsl(var(--status-success))',
+                    warning: 'hsl(var(--status-warning))',
+                    error: 'hsl(var(--status-error))',
+                    idle: 'hsl(var(--status-idle))'
+                },
                 sidebar: {
                     DEFAULT: 'hsl(var(--sidebar-background))',
                     background: 'hsl(var(--sidebar-background))',
@@ -97,8 +104,19 @@ export default {
                 'gradient-background': 'var(--gradient-background)'
             },
             boxShadow: {
+                '2xs': 'var(--shadow-2xs)',
+                xs: 'var(--shadow-xs)',
+                sm: 'var(--shadow-sm)',
+                DEFAULT: 'var(--shadow-sm)',
+                md: 'var(--shadow-md)',
+                lg: 'var(--shadow-lg)',
+                xl: 'var(--shadow-xl)',
+                '2xl': 'var(--shadow-xl)',
                 card: 'var(--shadow-card)',
-                hover: 'var(--shadow-hover)'
+                hover: 'var(--shadow-hover)',
+                glow: 'var(--glow-primary)',
+                // 显式禁用 inner —— 现代设计不用凹陷阴影
+                inner: 'none'
             },
             keyframes: {
                 'accordion-down': {

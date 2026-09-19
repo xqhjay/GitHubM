@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import FileTree from '@/components/code/FileTree';
+import { FILE_TYPE_COLORS } from '@/components/common/FileIcon';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import { CodeEditor } from '@/components/code/CodeEditor';
 import type { CodeEditorRef } from '@/components/code/CodeEditor';
@@ -728,7 +729,7 @@ export default function CodeBrowserPage() {
     <ContextMenuContent className="bg-popover border-border w-52">
       <ContextMenuItem className="text-foreground cursor-pointer text-sm"
         onClick={() => navigate(`/repos/${owner}/${repo}/code/${item.path}`)}>
-        <FolderOpen className="w-3.5 h-3.5 mr-2 text-yellow-400" />{i18n.t('打开文件夹')}</ContextMenuItem>
+        <FolderOpen className={`w-3.5 h-3.5 mr-2 ${FILE_TYPE_COLORS.folder}`} />{i18n.t('打开文件夹')}</ContextMenuItem>
       <ContextMenuSeparator className="bg-border" />
       <ContextMenuItem className="text-foreground cursor-pointer text-sm"
         onClick={() => { navigate(`/repos/${owner}/${repo}/code/${item.path}`); setTimeout(() => openAction('new-file'), 100); }}>
@@ -1072,7 +1073,10 @@ export default function CodeBrowserPage() {
                       </DropdownMenu>
                     </div>
                   </div>
-                  {/* 移动端文件信息栏 */}
+                  {/* 移动端文件信息栏 —— 刻意沿用 VSCode 深色编辑器外观
+                      （bg-[#1e1e1e] / text-gray-400 / text-white 是编辑器主题色，
+                       不随应用主题切换，避免浅色模式下编辑器外壳突兀）。
+                       有意例外：勿替换为设计 token。 */}
                   <div className="flex md:hidden items-center justify-between px-3 h-8 bg-[#1e1e1e] text-gray-400 text-xs shrink-0 font-mono">
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="truncate text-white">{editContent !== currentFile?.content ? '*' : ''}{currentFile?.name}</span>

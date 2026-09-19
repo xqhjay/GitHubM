@@ -25,7 +25,7 @@ export function NetworkStatusBanner() {
         'fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2',
         'px-4 py-2 text-xs font-medium transition-all duration-300',
         isOnline
-          ? 'bg-green-600 text-white'
+          ? 'bg-status-success text-white'
           : 'bg-destructive text-destructive-foreground',
       ].join(' ')}
     >

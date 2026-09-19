@@ -24,9 +24,24 @@
     --popover: 0 0% 100%;
     --popover-foreground: 240 15% 12%;
 
-    /* 主色 - 紫罗兰 #7c3aed */
-    --primary: 263 70% 58%;
+    /* 主色 - 紫罗兰
+       浅色模式下需在白底上保持 ≥4.5:1 对比度，故饱和度取 83%、亮度 58%。
+       （原有 70%/58% 饱和度偏低，视觉上发灰、显旧）
+       注：--primary 同时用作「前景色」（text-primary）与「实心背景」（bg-primary）。
+       两者的亮度需求相反——前景要足够亮、实心背景要足够暗以承载白色文字。
+       因此浅色模式下 bg-primary 实心块统一走 --primary-solid（见文件末尾 .dark 覆盖与下方注释）。 */
+    --primary: 262 83% 58%;           /* #7C3BED */
     --primary-foreground: 0 0% 100%;
+
+    /* 实心主色背景专用 —— 保证白字（--primary-foreground）≥4.5:1。
+       浅色模式下 --primary 的亮度已由全局修正压到白字达标（各主题 4.50~6.81），
+       故此处与 --primary 保持一致，只需覆盖高不透明度变体（/75、/90）。
+       深色模式下 --primary 为「发光感」保持较高亮度，实心块则由 .dark .bg-primary
+       自动重定向到本变量（见文件末尾），本值比 --primary 暗 6 个百分点。 */
+    --primary-solid: 262 83% 58%;     /* #7C3BED，与 --primary 同值 */
+
+    /* 主色的柔和变体 —— 供选中态底色、强调背景使用 */
+    --primary-soft: 262 83% 96%;
 
     /* 次要色 */
     --secondary: 250 20% 93%;         /* 浅紫灰 */
@@ -34,7 +49,7 @@
 
     /* 静音色 */
     --muted: 250 20% 93%;
-    --muted-foreground: 240 8% 50%;   /* 中灰 ≥4.5:1 */
+    --muted-foreground: 240 8% 46%;   /* 中灰 ≥4.5:1 */
 
     /* 强调色 - 亮紫蓝 */
     --accent: 258 88% 66%;            /* #8B5CF6 */
@@ -44,10 +59,12 @@
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    /* 边框/输入 */
-    --border: 250 15% 87%;
-    --input: 250 15% 87%;
-    --ring: 263 70% 58%;
+    /* 边框/输入
+       现代风格用「低对比细边框」代替重阴影来划分层次。
+       原有 87% 亮度偏深，视觉上偏重，改为 90%。 */
+    --border: 258 20% 90%;
+    --input: 258 20% 90%;
+    --ring: 262 83% 58%;
 
     /* 图表 */
     --chart-1: 263 70% 58%;           /* 紫 */
@@ -60,12 +77,12 @@
     --sidebar: 258 35% 97%;
     --sidebar-background: 258 35% 97%;
     --sidebar-foreground: 258 35% 18%;
-    --sidebar-primary: 263 70% 52%;
+    --sidebar-primary: 262 83% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 258 30% 91%;
-    --sidebar-accent-foreground: 258 35% 16%;
-    --sidebar-border: 258 20% 87%;
-    --sidebar-ring: 263 70% 58%;
+    --sidebar-accent: 258 32% 92%;
+    --sidebar-accent-foreground: 258 40% 15%;
+    --sidebar-border: 258 22% 90%;
+    --sidebar-ring: 262 83% 58%;
 
     /* 状态色 */
     --success: 142 65% 42%;
@@ -75,83 +92,150 @@
     --info: 196 80% 48%;
     --info-foreground: 0 0% 100%;
 
+    /* 运行态 / 进程状态 —— 与品牌紫解耦，保留独立色相以保证状态可读性。
+       用途：任务执行中(进行中) / 完成 / 警告 / 失败 / 空闲。 */
+    --status-running: 38 92% 50%;     /* amber  → 执行中、进度、等待 */
+    --status-success: 142 65% 42%;    /* green  → 成功、完成、已合并 */
+    --status-warning: 35 91% 55%;     /* 同 --warning */
+    --status-error: 0 72% 51%;        /* 同 --destructive */
+    --status-idle: 240 6% 55%;        /* 空闲、未开始、已取消 */
+
     /* 代码 */
     --code-bg: 250 25% 95%;
     --code-border: 250 15% 87%;
-  }
 
-  /* 深色模式 */
-  .dark {
-    --radius: 0.5rem;
-
-    /* 背景层 */
-    --background: 240 14% 8%;         /* #0D0D16 极深紫黑 */
-    --foreground: 240 20% 92%;        /* #E8E8F0 浅蓝白 */
-
-    /* 卡片/面板 */
-    --card: 240 12% 12%;              /* #181821 */
-    --card-foreground: 240 20% 92%;
-
-    /* 弹出层 */
-    --popover: 240 12% 15%;           /* #1D1D2B */
-    --popover-foreground: 240 20% 92%;
-
-    /* 主色 - 紫罗兰（深色稍亮） */
-    --primary: 263 72% 62%;           /* #8B4CF8 */
-    --primary-foreground: 0 0% 100%;
-
-    /* 次要色 */
-    --secondary: 240 12% 18%;         /* #252535 */
-    --secondary-foreground: 240 20% 88%;
-
-    /* 静音色 */
-    --muted: 240 10% 18%;
-    --muted-foreground: 240 10% 62%;  /* #9292A8 ≥4.5:1 */
-
-    /* 强调色 */
-    --accent: 258 88% 70%;            /* #9B77F9 */
-    --accent-foreground: 0 0% 100%;
-
-    /* 危险色 */
-    --destructive: 0 72% 56%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* 边框/输入 */
-    --border: 240 10% 24%;            /* #343448 */
-    --input: 240 10% 22%;
-    --ring: 263 72% 62%;
-
-    /* 图表 */
-    --chart-1: 263 72% 62%;
-    --chart-2: 196 80% 55%;
-    --chart-3: 27 90% 62%;
-    --chart-4: 142 65% 48%;
-    --chart-5: 0 72% 56%;
-
-    /* 侧边栏 - 更深紫黑 */
-    --sidebar: 240 14% 6%;
-    --sidebar-background: 240 14% 6%;
-    --sidebar-foreground: 240 20% 88%;
-    --sidebar-primary: 263 72% 65%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 12% 14%;
-    --sidebar-accent-foreground: 240 20% 92%;
-    --sidebar-border: 240 10% 16%;
-    --sidebar-ring: 263 72% 62%;
-
-    /* 状态色 */
-    --success: 142 65% 48%;
-    --success-foreground: 0 0% 100%;
-    --warning: 35 91% 58%;
-    --warning-foreground: 0 0% 100%;
-    --info: 196 80% 55%;
-    --info-foreground: 0 0% 100%;
-
-    /* 代码 */
-    --code-bg: 240 14% 8%;
-    --code-border: 240 10% 24%;
+    /* ── 阴影体系 ──────────────────────────────────────────────
+       设计原则：阴影带品牌色相（258 40%）而非纯黑。
+       纯黑阴影叠在紫色背景上会产生浑浊的灰边 —— 这是「阴影脏」的根因。
+       浅色模式用「多层低透明度」模拟环境光，避免单层重阴影的塑料感。 */
+    --shadow-color: 258 40% 22%;
+    --shadow-2xs: 0 1px 2px hsl(var(--shadow-color) / 0.04);
+    --shadow-xs:  0 1px 3px hsl(var(--shadow-color) / 0.05),
+                  0 1px 2px hsl(var(--shadow-color) / 0.03);
+    --shadow-sm:  0 2px 4px hsl(var(--shadow-color) / 0.05),
+                  0 1px 2px hsl(var(--shadow-color) / 0.03);
+    --shadow-md:  0 4px 10px hsl(var(--shadow-color) / 0.06),
+                  0 2px 4px hsl(var(--shadow-color) / 0.04);
+    --shadow-lg:  0 8px 24px hsl(var(--shadow-color) / 0.08),
+                  0 3px 8px hsl(var(--shadow-color) / 0.04);
+    --shadow-xl:  0 16px 40px hsl(var(--shadow-color) / 0.10),
+                  0 6px 16px hsl(var(--shadow-color) / 0.05);
+    --shadow-card: var(--shadow-sm);
+    --shadow-hover: var(--shadow-md);
   }
 }
+
+/* 深色模式变量。
+   必须放在 @layer base 之外：Tailwind 会把 @layer base 内的「变量块」
+   重写为 html { ... }，其特异性与 :root 相同且位置更靠后，
+   导致浅色模式也被深色变量覆盖（--primary 等值错误）。
+   放在顶层则原样保留，配合 html.dark / html.light 类正常工作。 */
+.dark {
+  --radius: 0.5rem;
+
+  /* 背景层 */
+  --background: 240 14% 8%;         /* #0D0D16 极深紫黑 */
+  --foreground: 240 20% 92%;        /* #E8E8F0 浅蓝白 */
+
+  /* 卡片/面板 */
+  --card: 240 12% 12%;              /* #181821 */
+  --card-foreground: 240 20% 92%;
+
+  /* 弹出层 */
+  --popover: 240 12% 15%;           /* #1D1D2B */
+  --popover-foreground: 240 20% 92%;
+
+  /* 主色 - 紫罗兰（深色模式提高饱和与亮度，产生发光感）
+     此处亮度 66% 适合作前景（text-primary 对深底 ≥4.5:1），
+     但作实心背景时白字仅 4.03:1，故实心块走 --primary-solid（更暗）。 */
+  --primary: 265 89% 66%;           /* #9B5BF5 */
+  --primary-foreground: 0 0% 100%;
+  --primary-solid: 265 89% 60%;     /* #8A3EF4 */
+  --primary-soft: 265 60% 18%;
+
+  /* 次要色 */
+  --secondary: 240 12% 18%;         /* #252535 */
+  --secondary-foreground: 240 20% 88%;
+
+  /* 静音色 */
+  --muted: 240 10% 18%;
+  --muted-foreground: 240 12% 68%;  /* 提亮以提高可读性 ≥4.5:1 */
+
+  /* 强调色 */
+  --accent: 258 88% 70%;            /* #9B77F9 */
+  --accent-foreground: 0 0% 100%;
+
+  /* 危险色 */
+  --destructive: 0 72% 56%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* 边框/输入 */
+  --border: 240 12% 22%;
+  --input: 240 12% 20%;
+  --ring: 265 89% 66%;
+
+  /* 图表 */
+  --chart-1: 263 72% 62%;
+  --chart-2: 196 80% 55%;
+  --chart-3: 27 90% 62%;
+  --chart-4: 142 65% 48%;
+  --chart-5: 0 72% 56%;
+
+  /* 侧边栏 - 更深紫黑 */
+  --sidebar: 240 14% 6%;
+  --sidebar-background: 240 14% 6%;
+  --sidebar-foreground: 240 20% 88%;
+  --sidebar-primary: 265 89% 68%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  /* hover 底色与原背景仅差 8% 亮度，几乎不可辨 —— 拉大到 14% */
+  --sidebar-accent: 240 13% 15%;
+  --sidebar-accent-foreground: 240 25% 95%;
+  --sidebar-border: 240 11% 19%;
+  --sidebar-ring: 265 89% 66%;
+
+  /* 状态色 */
+  --success: 142 65% 48%;
+  --success-foreground: 0 0% 100%;
+  --warning: 35 91% 58%;
+  --warning-foreground: 0 0% 100%;
+  --info: 196 80% 55%;
+  --info-foreground: 0 0% 100%;
+
+  /* 运行态 / 进程状态（深色模式提亮） */
+  --status-running: 38 92% 58%;
+  --status-success: 142 65% 48%;
+  --status-warning: 35 91% 58%;
+  --status-error: 0 72% 56%;
+  --status-idle: 240 8% 60%;
+
+  /* 代码 */
+  --code-bg: 240 14% 8%;
+  --code-border: 240 10% 24%;
+
+  /* ── 阴影体系（深色模式）────────────────────────────────────
+     深色背景上纯黑阴影不可见 —— 层次必须靠「内侧高光 + 外层深影」共同构成。
+     内高光模拟顶部受光，是 Raycast 等现代深色界面的核心手法。 */
+  --shadow-color: 240 60% 2%;
+  --shadow-highlight: 240 30% 96%;
+  --shadow-2xs: 0 1px 2px hsl(var(--shadow-color) / 0.4);
+  --shadow-xs:  0 1px 3px hsl(var(--shadow-color) / 0.5),
+                inset 0 1px 0 hsl(var(--shadow-highlight) / 0.04);
+  --shadow-sm:  0 2px 6px hsl(var(--shadow-color) / 0.5),
+                inset 0 1px 0 hsl(var(--shadow-highlight) / 0.05);
+  --shadow-md:  0 4px 14px hsl(var(--shadow-color) / 0.55),
+                inset 0 1px 0 hsl(var(--shadow-highlight) / 0.06);
+  --shadow-lg:  0 10px 30px hsl(var(--shadow-color) / 0.6),
+                inset 0 1px 0 hsl(var(--shadow-highlight) / 0.07);
+  --shadow-xl:  0 20px 50px hsl(var(--shadow-color) / 0.65),
+                inset 0 1px 0 hsl(var(--shadow-highlight) / 0.08);
+  --shadow-card: var(--shadow-sm);
+  --shadow-hover: var(--shadow-md);
+
+  /* 发光效果 —— 仅深色模式有意义，用于主按钮 / 激活态 */
+  --glow-primary: 0 0 0 1px hsl(var(--primary) / 0.3),
+                  0 4px 16px hsl(var(--primary) / 0.25);
+}
+
 
 @layer base {
   * {
@@ -215,10 +299,19 @@
     transition: background-color 9999s ease 9999s;
   }
 
-  html {
-    /* 深色模式为默认（初始） */
-    @apply dark;
-  }
+  /* 注意：此处原本有一条 `html { @apply dark; }`（注释为「深色模式为默认（初始）」）。
+     它是有害的冗余代码，已移除，原因如下：
+     1. 意图重复：初始主题由 index.html 的预初始化脚本负责（读 localStorage +
+        prefers-color-scheme，在 CSS 加载前为 <html> 加好 dark/light class），
+        无需 CSS 兜底。
+     2. 实际有害：@apply dark 会把 .dark 分支下的全部声明（含所有 CSS 变量）
+        内联进 html 选择器。html 与 :root 特异性相同且位置更靠后，
+        因此在浅色模式下也会覆盖 :root 的变量，使 --primary 等取到深色值。
+     3. 掩盖 bug：此前之所以「看起来正常」，仅因为 ThemeContext 用
+        root.style.setProperty() 写入内联样式（优先级最高），把错误值盖住了。
+        一旦 JS 注入路径变化（如未挂载、变量名调整），浅色模式会立刻错色。
+     4. 副作用：@apply dark 还会展开出 `html .bg-primary` 等规则，
+        特异性高于 .bg-primary，干扰实心背景的深浅色分流。 */
 
   body {
     @apply bg-background text-foreground;
@@ -345,6 +438,43 @@
     border-top: 1px solid hsl(var(--border));
     margin: 1.5rem 0;
   }
+
+  /* ───────────────────────────────────────────────────────────────────────────
+     主色实心背景修正（无障碍）
+     ───────────────────────────────────────────────────────────────────────────
+    背景：--primary 身兼两职——text-primary（前景）要亮、bg-primary（实心背景）要暗
+    才能让白字达到 WCAG AA（4.5:1）。实测深色模式下两者需求相差 3 个百分点，
+    不存在同时满足的单一亮度值，故拆出 --primary-solid 专供实心背景。
+
+    浅色模式：--primary 本身已满足白字 ≥4.5:1（各主题 4.50~6.81），无需处理。
+    深色模式：.bg-primary 重定向到 --primary-solid（白字 ≥4.50）。
+
+    注意：只重定向「不透明」的实心背景。带低透明度的淡底（/5、/10、/20 …）
+    是选中态与装饰用的浅色块，必须继续用 --primary 保持色调统一。
+
+    必须写在 @layer utilities 内：若写成顶层裸规则，Tailwind 会将其归入 base 层
+    并改写为 `html .bg-primary`，从而以较低优先级覆盖浅色模式。
+    也不要新开一个 @layer utilities 块——同文件多个同名块会让 Tailwind 只对其中
+    一块做正确归位，另一块被降级为带 `html` 前缀的 base 规则。
+     ─────────────────────────────────────────────────────────────────────────── */
+  .dark .bg-primary {
+    background-color: hsl(var(--primary-solid));
+  }
+
+  /* 高不透明度变体（hover 等状态）同步重定向，避免 hover 时跳回亮色。
+     阈值定在 /50：≥50% 的叠加已接近实心，承载白字需用 solid；
+     <50% 仍属淡底，保持 --primary。 */
+  .dark .bg-primary\/50 { background-color: hsl(var(--primary-solid) / 0.5); }
+  .dark .bg-primary\/75 { background-color: hsl(var(--primary-solid) / 0.75); }
+  .dark .bg-primary\/80 { background-color: hsl(var(--primary-solid) / 0.8); }
+  .dark .bg-primary\/90 { background-color: hsl(var(--primary-solid) / 0.9); }
+
+  /* hover 变体的类名是 .hover\:bg-primary\/N，与上面的 .bg-primary\/N 不同，
+     必须单独列出，否则鼠标悬停时会闪回未修正的亮色。 */
+  .dark .hover\:bg-primary\/50:hover { background-color: hsl(var(--primary-solid) / 0.5); }
+  .dark .hover\:bg-primary\/75:hover { background-color: hsl(var(--primary-solid) / 0.75); }
+  .dark .hover\:bg-primary\/80:hover { background-color: hsl(var(--primary-solid) / 0.8); }
+  .dark .hover\:bg-primary\/90:hover { background-color: hsl(var(--primary-solid) / 0.9); }
 }
 
 /*
@@ -398,3 +528,6 @@ html.theme-transitioning *::after {
     line-height: 24px !important;
   }
 }
+
+/* 浅色模式：--primary 已在全局修正中压到白字达标（各主题 4.50~6.81），
+   且 --primary-solid 与其同值，故 /75~/90 变体无需额外规则。 */
