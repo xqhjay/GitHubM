@@ -1,5 +1,5 @@
-# PR 合并前质量门卡
-# 触发条件：向 main / master 提交 Pull Request 时
+# 代码质量门卡
+# 触发条件：push 到 main / master，或向其提交 Pull Request
 # 检查项：
 #   1. pnpm install（带 frozen-lockfile，确保依赖锁定）
 #   2. Biome lint（代码规范）
@@ -8,10 +8,13 @@
 #   5. 导航定义同步检查（前端 PRIMARY_TABS vs Android NAV_PATH_MAP）
 #   6. 生产构建验证（确保 dist/ 产物正常生成）
 #
-# 所有检查必须全部通过，PR 才允许合并（需在仓库分支保护规则中勾选本工作流）
-name: PR Check
+# 本仓库为自用 fork，不经过 PR 流程，故同时监听 push，
+# 确保每次推送 main 都会跑一遍质量检查。
+name: CI
 
 on:
+  push:
+    branches: [main, master]
   pull_request:
     branches: [main, master]
 
